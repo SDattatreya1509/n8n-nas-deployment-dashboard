@@ -1,0 +1,309 @@
+const express = require('express');
+const router  = express.Router();
+const fs      = require('fs');
+const path    = require('path');
+const { requireAuth } = require('../middleware/auth');
+
+// All project routes require authentication
+router.use(requireAuth);
+
+const { PROJECTS_DIR, WEBSITES_DIR, WEBSITES_MOBILE_APPS_DIR, getProjectTypeDir } = require('../config/storage');
+
+const TEXT_EXTS = new Set([
+  '.php', '.css', '.js', '.ts', '.tsx', '.jsx', '.html', '.htm',
+  '.json', '.txt', '.md', '.xml', '.sql', '.pot', '.htaccess', '.env',
+  '.sh', '.yml', '.yaml',
+]);
+const BINARY_EXTS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.ico', '.woff', '.woff2']);
+
+function walkDir(dir, relBase = '') {
+  const entries = [];
+  let items;
+  try { items = fs.readdirSync(dir); } catch { return entries; }
+
+  for (const name of items) {
+    const full = path.join(dir, name);
+    const rel  = relBase ? `${relBase}/${name}` : name;
+    let stat;
+    try { stat = fs.statSync(full); } catch { continue; }
+
+    if (stat.isDirectory()) {
+      entries.push({ type: 'dir', name, path: rel, children: [] });
+      entries.push(...walkDir(full, rel));
+    } else {
+      entries.push({
+        type: 'file',
+        name,
+        path: rel,
+        size: stat.size,
+        ext:  path.extname(name).toLowerCase(),
+        mtime: stat.mtimeMs,
+      });
+    }
+  }
+  return entries;
+}
+
+function buildTree(entries) {
+  const root = { children: {} };
+  for (const e of entries) {
+    const parts = e.path.split('/');
+    let node = root;
+    for (let i = 0; i < parts.length - 1; i++) {
+      if (!node.children[parts[i]]) node.children[parts[i]] = { name: parts[i], type: 'dir', children: {} };
+      node = node.children[parts[i]];
+    }
+    const leaf = parts[parts.length - 1];
+    node.children[leaf] = { ...e, children: e.type === 'dir' ? {} : undefined };
+  }
+  function flatten(node) {
+    if (!node.children) return node;
+    return { ...node, children: Object.values(node.children).map(flatten).sort((a, b) => {
+      if (a.type !== b.type) return a.type === 'dir' ? -1 : 1;
+      return a.name.localeCompare(b.name);
+    })};
+  }
+  return Object.values(root.children).map(flatten).sort((a, b) => {
+    if (a.type !== b.type) return a.type === 'dir' ? -1 : 1;
+    return a.name.localeCompare(b.name);
+  });
+}
+
+function getProjectType(name) {
+  if (name.startsWith('wp_'))  return 'wordpress';
+  if (name.startsWith('web_')) return 'react';
+  return 'unknown';
+}
+
+function formatSize(bytes) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+// Derive the folder segment from a user record (matches n8n File Creation node logic)
+function userToSegment(user) {
+  return user.name.toLowerCase().replace(/[^a-z0-9_-]/gi, '_');
+}
+
+// ── GET /api/projects ──────────────────────────────────────────────────────────
+// Admin sees all users' projects. Regular users only see their own segment.
+router.get('/', (req, res) => {
+  const isAdmin   = req.user.role === 'admin';
+  const mySegment = userToSegment(req.user);
+  const projects  = [];
+
+  // Scan one typed project directory (Websites/ or Websites&MobileApps/)
+  function scanTypedDir(typedDir, projTypeName) {
+    if (!fs.existsSync(typedDir)) return;
+    let segments;
+    try { segments = fs.readdirSync(typedDir); } catch { return; }
+
+    for (const segment of segments) {
+      const segPath = path.join(typedDir, segment);
+      let segStat;
+      try { segStat = fs.statSync(segPath); } catch { continue; }
+      if (!segStat.isDirectory()) continue;
+      if (!isAdmin && segment !== mySegment) continue;
+
+      let projectNames;
+      try { projectNames = fs.readdirSync(segPath); } catch { continue; }
+      for (const projName of projectNames) {
+        const projPath = path.join(segPath, projName);
+        let projStat;
+        try { projStat = fs.statSync(projPath); } catch { continue; }
+        if (!projStat.isDirectory()) continue;
+        pushProject(projects, segPath, projName, segment, projTypeName);
+      }
+    }
+  }
+
+  scanTypedDir(WEBSITES_DIR, 'website');
+  scanTypedDir(WEBSITES_MOBILE_APPS_DIR, 'website-mobile-app');
+
+  // Legacy flat layout — PROJECTS_DIR root (projects created before Phase 2.2)
+  if (fs.existsSync(PROJECTS_DIR)) {
+    let topLevel;
+    try { topLevel = fs.readdirSync(PROJECTS_DIR); } catch (e) {
+      return res.status(500).json({ error: e.message });
+    }
+    for (const segment of topLevel) {
+      // Skip the typed subdirs themselves
+      if (segment === 'Websites' || segment === 'Websites&MobileApps') continue;
+      const segPath = path.join(PROJECTS_DIR, segment);
+      let segStat;
+      try { segStat = fs.statSync(segPath); } catch { continue; }
+      if (!segStat.isDirectory()) continue;
+
+      const isProject = /^(web_|wp_)/.test(segment);
+      if (isProject) {
+        if (isAdmin || mySegment === 'shared') {
+          pushProject(projects, PROJECTS_DIR, segment, 'shared', 'website');
+        }
+      } else {
+        if (!isAdmin && segment !== mySegment) continue;
+        let projectNames;
+        try { projectNames = fs.readdirSync(segPath); } catch { continue; }
+        for (const projName of projectNames) {
+          const projPath = path.join(segPath, projName);
+          let projStat;
+          try { projStat = fs.statSync(projPath); } catch { continue; }
+          if (!projStat.isDirectory()) continue;
+          pushProject(projects, segPath, projName, segment, 'website');
+        }
+      }
+    }
+  }
+
+  projects.sort((a, b) => {
+    if (!a.lastModified) return 1;
+    if (!b.lastModified) return -1;
+    return new Date(b.lastModified) - new Date(a.lastModified);
+  });
+
+  res.json({ projects, projectsDir: PROJECTS_DIR });
+});
+
+function pushProject(projects, parentDir, name, userSegment, projectType = 'website') {
+  const projPath  = path.join(parentDir, name);
+  const entries   = walkDir(projPath);
+  const files     = entries.filter(e => e.type === 'file');
+  const totalSize = files.reduce((s, f) => s + (f.size || 0), 0);
+  const lastMtime = files.reduce((m, f) => Math.max(m, f.mtime || 0), 0);
+
+  const extCounts = {};
+  for (const f of files) {
+    extCounts[f.ext] = (extCounts[f.ext] || 0) + 1;
+  }
+
+  projects.push({
+    name,
+    userSegment,
+    type:         getProjectType(name),
+    projectType,
+    fileCount:    files.length,
+    totalSize,
+    totalSizeFmt: formatSize(totalSize),
+    lastModified: lastMtime ? new Date(lastMtime).toISOString() : null,
+    extCounts,
+    topFiles:     files.filter(f => !f.path.includes('/')).map(f => f.name),
+  });
+}
+
+// Resolve a project name → absolute directory.
+// Checks typed dirs (Websites/, Websites&MobileApps/) first, then legacy PROJECTS_DIR.
+// Non-admin users can only access their own segment.
+function resolveProjectDir(name, user, projectType = null) {
+  const safe      = path.basename(name);
+  const isAdmin   = user?.role === 'admin';
+  const mySegment = user ? userToSegment(user) : null;
+
+  // Helper: scan typed dir for the project
+  function findInTypedDir(typedDir) {
+    if (mySegment) {
+      const own = path.join(typedDir, mySegment, safe);
+      if (fs.existsSync(own)) return own;
+    }
+    if (isAdmin && fs.existsSync(typedDir)) {
+      let segs;
+      try { segs = fs.readdirSync(typedDir); } catch { return null; }
+      for (const seg of segs) {
+        const candidate = path.join(typedDir, seg, safe);
+        if (fs.existsSync(candidate)) return candidate;
+      }
+    }
+    return null;
+  }
+
+  // Check typed dirs — if projectType given, check that dir first
+  if (projectType) {
+    const found = findInTypedDir(getProjectTypeDir(projectType));
+    if (found) return found;
+  }
+
+  // Check all typed dirs regardless
+  for (const typedDir of [WEBSITES_DIR, WEBSITES_MOBILE_APPS_DIR]) {
+    const found = findInTypedDir(typedDir);
+    if (found) return found;
+  }
+
+  // Legacy flat layout — PROJECTS_DIR/userSegment/name or direct
+  if (mySegment) {
+    const legacyOwn = path.join(PROJECTS_DIR, mySegment, safe);
+    if (fs.existsSync(legacyOwn)) return legacyOwn;
+  }
+  const direct = path.join(PROJECTS_DIR, safe);
+  if (fs.existsSync(direct) && (isAdmin || mySegment === 'shared')) return direct;
+
+  if (isAdmin) {
+    let segments;
+    try { segments = fs.readdirSync(PROJECTS_DIR); } catch { return null; }
+    for (const seg of segments) {
+      if (seg === 'Websites' || seg === 'Websites&MobileApps') continue;
+      const candidate = path.join(PROJECTS_DIR, seg, safe);
+      if (fs.existsSync(candidate)) return candidate;
+    }
+  }
+
+  return null;
+}
+
+// ── GET /api/projects/:name/tree ──────────────────────────────────────────────
+router.get('/:name/tree', (req, res) => {
+  const projectType = req.query.projectType || null;
+  const projDir = resolveProjectDir(req.params.name, req.user, projectType);
+  if (!projDir) return res.status(404).json({ error: 'Project not found' });
+
+  const safeName = path.basename(projDir);
+  const entries  = walkDir(projDir);
+  const tree     = buildTree(entries);
+  const files    = entries.filter(e => e.type === 'file');
+
+  res.json({
+    name:      safeName,
+    type:      getProjectType(safeName),
+    tree,
+    fileCount: files.length,
+    totalSize: files.reduce((s, f) => s + (f.size || 0), 0),
+  });
+});
+
+// ── GET /api/projects/:name/file?path=relative/path ───────────────────────────
+router.get('/:name/file', (req, res) => {
+  const filePath = req.query.path;
+  if (!filePath) return res.status(400).json({ error: 'path query param required' });
+
+  const projectType = req.query.projectType || null;
+  const projDir = resolveProjectDir(req.params.name, req.user, projectType);
+  if (!projDir) return res.status(404).json({ error: 'Project not found' });
+
+  // Security: resolve and ensure it stays inside the project dir
+  const fullPath = path.resolve(projDir, filePath);
+  if (!fullPath.startsWith(projDir + path.sep) && fullPath !== projDir) {
+    return res.status(403).json({ error: 'Path traversal denied' });
+  }
+
+  if (!fs.existsSync(fullPath)) return res.status(404).json({ error: 'File not found' });
+
+  const stat = fs.statSync(fullPath);
+  if (stat.isDirectory()) return res.status(400).json({ error: 'Path is a directory' });
+
+  const ext = path.extname(filePath).toLowerCase();
+
+  if (BINARY_EXTS.has(ext)) {
+    return res.sendFile(fullPath);
+  }
+
+  if (TEXT_EXTS.has(ext) || !ext) {
+    try {
+      const content = fs.readFileSync(fullPath, 'utf8');
+      return res.json({ content, size: stat.size, ext });
+    } catch (e) {
+      return res.status(500).json({ error: e.message });
+    }
+  }
+
+  res.status(415).json({ error: `Unsupported file type: ${ext}` });
+});
+
+module.exports = router;

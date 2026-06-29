@@ -1,0 +1,98 @@
+# ── Node.js ───────────────────────────────────────────────────────────────────
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ── Build output ──────────────────────────────────────────────────────────────
+dist/
+build/
+dashboard/backend/public/
+
+# ── Environment / Secrets ─────────────────────────────────────────────────────
+.env
+.env.local
+.env.*.local
+*.env
+# Keep only .env.example files
+!.env.example
+
+# ── Runtime logs ──────────────────────────────────────────────────────────────
+*.log
+logs/
+!logs/.gitkeep
+dashboard-data/logs/*.log
+
+# ── Generated project files (n8n writes at runtime) ──────────────────────────
+projects/*
+!projects/.gitkeep
+!projects/Websites/
+projects/Websites/*
+!projects/Websites/.gitkeep
+!projects/Websites&MobileApps/
+projects/Websites&MobileApps/*
+!projects/Websites&MobileApps/.gitkeep
+
+# ── User uploads (runtime) ───────────────────────────────────────────────────
+uploads/*
+!uploads/.gitkeep
+
+# ── Live preview files (runtime) ─────────────────────────────────────────────
+previews/*
+!previews/.gitkeep
+
+# ── WordPress output (runtime) ───────────────────────────────────────────────
+wordpress/*
+!wordpress/.gitkeep
+
+# ── Mobile app output (runtime) ──────────────────────────────────────────────
+mobile-apps/*
+!mobile-apps/.gitkeep
+
+# ── Backups (runtime) ─────────────────────────────────────────────────────────
+backups/daily/*
+!backups/daily/.gitkeep
+backups/weekly/*
+!backups/weekly/.gitkeep
+backups/monthly/*
+!backups/monthly/.gitkeep
+
+# ── n8n data (operator-managed, not source) ───────────────────────────────────
+n8n/data/*
+!n8n/data/.gitkeep
+n8n/workflows/*
+!n8n/workflows/.gitkeep
+n8n/credentials/*
+!n8n/credentials/.gitkeep
+
+# ── Shared temp / cache / exports (runtime) ──────────────────────────────────
+shared/temp/*
+!shared/temp/.gitkeep
+shared/cache/*
+!shared/cache/.gitkeep
+shared/exports/*
+!shared/exports/.gitkeep
+
+# ── Docker volumes stub ───────────────────────────────────────────────────────
+docker/volumes/*
+!docker/volumes/.gitkeep
+docker/compose/*
+!docker/compose/.gitkeep
+
+# ── OS files ──────────────────────────────────────────────────────────────────
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# ── Editor files ──────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.claude/

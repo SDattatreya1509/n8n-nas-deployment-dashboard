@@ -1,0 +1,145 @@
+version: '3.8'
+
+# NAS Deployment Configuration
+# ─────────────────────────────────────────────────────────────────────────────
+# This file lives inside the deployment package at:
+#   nas-deployment/Website-Generator/dashboard/docker-compose.yml
+#
+# On the NAS it will be located at:
+#   /n8n_data/Website-Generator/dashboard/docker-compose.yml
+#
+# Run from that directory:
+#   cd /n8n_data/Website-Generator/dashboard
+#   docker-compose up -d
+#
+# Docker builds from this folder (context: .) which contains:
+#   backend/   ← Express API server source
+#   frontend/  ← React dashboard source
+#   Dockerfile ← Multi-stage build
+#
+# All persistent data is stored outside the container under
+# /n8n_data/Website-Generator/ so it survives updates and restarts.
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+
+  dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ai-dashboard
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+
+      # ── Security ──────────────────────────────────────────────────────────
+      # REQUIRED: generate with: openssl rand -hex 32
+      JWT_SECRET: CHANGE_THIS_BEFORE_DEPLOYING
+
+      # Shared secret between n8n HTTP Request nodes and this backend
+      # Must match x-webhook-secret header in all n8n HTTP Request nodes
+      N8N_WEBHOOK_SECRET: ""
+
+      # ── Network ───────────────────────────────────────────────────────────
+      # Set to your Cloudflare Tunnel public HTTPS URL after creating the tunnel
+      # Example: https://dashboard.yourdomain.com
+      FRONTEND_URL: http://localhost:3001
+
+      # ── Storage — all paths are container-internal mount points ───────────
+      DATA_DIR:      /nas/data
+      PROJECTS_DIR:  /nas/projects
+      DB_PATH:       /nas/data/db.json
+      UPLOADS_DIR:   /nas/uploads
+      PREVIEW_DIR:   /nas/previews
+      WORDPRESS_DIR: /nas/wordpress
+      MOBILE_DIR:    /nas/mobile
+      LOG_DIR:       /nas/data/logs
+      BACKUP_DIR:    /nas/backups
+      TEMP_DIR:      /nas/temp
+      CACHE_DIR:     /nas/cache
+      EXPORT_DIR:    /nas/exports
+
+      # n8n data directories (read-only from dashboard)
+      N8N_DATA_DIR:        /nas/n8n/data
+      N8N_WORKFLOWS_DIR:   /nas/n8n/workflows
+      N8N_CREDENTIALS_DIR: /nas/n8n/credentials
+
+      # ── n8n integration ───────────────────────────────────────────────────
+      N8N_CHAT_URL: https://your-n8n-domain.com/webhook/YOUR_WEBHOOK_ID/chat
+
+      # Mobile pipeline (optional second n8n instance or workflow)
+      N8N_MOBILE_CHAT_URL: ""
+
+      # n8n REST API key (for stop-execution feature)
+      N8N_API_KEY: ""
+
+      # ── Email (optional — Resend HTTP API) ────────────────────────────────
+      SMTP_USER: resend
+      SMTP_PASS: ""
+      SMTP_FROM: onboarding@resend.dev
+      SKIP_EMAIL_VERIFICATION: "true"
+
+      # ── GitHub (optional) ─────────────────────────────────────────────────
+      GITHUB_TOKEN:  ""
+      GITHUB_OWNER:  ""
+      GITHUB_REPO:   ""
+      GITHUB_BRANCH: main
+
+      # GitHub OAuth app (optional — for per-user GitHub linking)
+      GITHUB_CLIENT_ID:     ""
+      GITHUB_CLIENT_SECRET: ""
+      BACKEND_URL:          http://localhost:3001
+
+      # ── FTP (optional — for WordPress deployment) ─────────────────────────
+      FTP_HOST:        ""
+      FTP_USER:        ""
+      FTP_PASS:        ""
+      FTP_REMOTE_PATH: /wp-content/themes
+
+    volumes:
+      # Generated project files — shared with n8n (SAME host path n8n writes to)
+      - /n8n_data/Website-Generator/projects:/nas/projects
+
+      # Persistent data — users.json, db.json, logs survive restarts and updates
+      - /n8n_data/Website-Generator/dashboard-data:/nas/data
+
+      # Additional storage directories
+      - /n8n_data/Website-Generator/uploads:/nas/uploads
+      - /n8n_data/Website-Generator/previews:/nas/previews
+      - /n8n_data/Website-Generator/wordpress:/nas/wordpress
+      - /n8n_data/Website-Generator/mobile-apps:/nas/mobile
+      - /n8n_data/Website-Generator/shared/temp:/nas/temp
+      - /n8n_data/Website-Generator/shared/cache:/nas/cache
+      - /n8n_data/Website-Generator/shared/exports:/nas/exports
+      - /n8n_data/Website-Generator/backups:/nas/backups
+
+      # n8n data (read-only from dashboard)
+      - /n8n_data/Website-Generator/n8n/data:/nas/n8n/data:ro
+      - /n8n_data/Website-Generator/n8n/workflows:/nas/n8n/workflows:ro
+      - /n8n_data/Website-Generator/n8n/credentials:/nas/n8n/credentials:ro
+
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3001/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  # ── Cloudflare Tunnel ─────────────────────────────────────────────────────
+  # Gives the dashboard a public HTTPS URL without opening firewall ports.
+  # Steps:
+  #   1. Go to one.dash.cloudflare.com → Zero Trust → Networks → Tunnels
+  #   2. Create a tunnel → copy the token shown
+  #   3. Replace YOUR_TUNNEL_TOKEN_HERE below with that token
+  #   4. Add a Public Hostname: Subdomain: dashboard, Domain: yourdomain.com,
+  #      Service: http://dashboard:3001
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: cloudflared
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run --token YOUR_TUNNEL_TOKEN_HERE
+    depends_on:
+      - dashboard

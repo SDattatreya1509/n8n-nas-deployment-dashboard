@@ -107,7 +107,7 @@ export default function FileExplorerPage() {
   const [copied, setCopied]             = useState(false);
   const [loadError, setLoadError]       = useState('');
 
-  const authHeaders = () => {
+  const authHeaders = (): Record<string, string> => {
     const token = localStorage.getItem('n8n-auth-token') ?? '';
     return token ? { Authorization: `Bearer ${token}` } : {};
   };

@@ -86,6 +86,6 @@ export interface Commit {
 
 export interface DeployLog {
   msg: string;
-  type: 'log' | 'error';
+  type: 'log' | 'error' | 'success';
   ts: string;
 }

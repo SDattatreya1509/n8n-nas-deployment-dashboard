@@ -8,6 +8,7 @@ import {
 import { n8n as n8nApi } from '../api/client';
 import { Build } from '../types';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../store/useAuth';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -138,9 +139,11 @@ let _requestInFlight                     = false;
 
 export default function ChatPage({ builds, pipelineType = 'web' }: Props) {
   const navigate   = useNavigate();
+  const { user }   = useAuth();
+  const userId     = user?.id ?? 'anonymous';
   const isWebapp   = pipelineType === 'webapp';
-  const SESSIONS_KEY       = isWebapp ? 'n8n-webapp-sessions-v1' : 'n8n-sessions-v2';
-  const ACTIVE_SESSION_KEY = isWebapp ? 'n8n-webapp-active-session' : 'n8n-active-session';
+  const SESSIONS_KEY       = isWebapp ? `n8n-webapp-sessions-v1-${userId}` : `n8n-sessions-v2-${userId}`;
+  const ACTIVE_SESSION_KEY = isWebapp ? `n8n-webapp-active-session-${userId}` : `n8n-active-session-${userId}`;
   const projectType = isWebapp ? 'website-mobile-app' as const : 'website' as const;
   const apiStatus  = isWebapp ? n8nApi.statusMobile : n8nApi.status;
   const apiChat    = isWebapp

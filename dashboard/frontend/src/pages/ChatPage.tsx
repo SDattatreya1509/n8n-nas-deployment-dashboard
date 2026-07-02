@@ -98,7 +98,11 @@ function saveMessages(sessionId: string, messages: Message[]) {
 function deleteSessionData(sessionId: string) {
   localStorage.removeItem(msgKey(sessionId));
   localStorage.removeItem(buildKey(sessionId));
+  localStorage.removeItem(`n8n-loading-${sessionId}`);
+  localStorage.removeItem(`n8n-chat-pending-${sessionId}`);
 }
+function loadingKey(sessionId: string) { return `n8n-loading-${sessionId}`; }
+function pendingKey(sessionId: string)  { return `n8n-chat-pending-${sessionId}`; }
 function createSession(pipeline: 'web' | 'webapp'): ChatSession {
   return {
     id: `session-${Date.now()}`, title: 'New Project',
@@ -162,6 +166,7 @@ export default function ChatPage({ builds, pipelineType = 'web' }: Props) {
   const [loading,       setLoading]       = useState(false);
   const [building,      setBuilding]      = useState(false);
   const [n8nConfigured, setN8nConfigured] = useState<boolean | null>(null);
+  const [pendingResponse, setPendingResponse] = useState<string | null>(null);
 
   // Elapsed timer while loading
   const [elapsed, setElapsed] = useState(0);
@@ -190,7 +195,7 @@ export default function ChatPage({ builds, pipelineType = 'web' }: Props) {
   useEffect(() => { activeIdRef.current = activeSession?.id ?? null; }, [activeSession]);
 
   useEffect(() => {
-    if (!activeSession) { setMessages([]); setChatStarted(false); setBuilding(false); return; }
+    if (!activeSession) { setMessages([]); setChatStarted(false); setBuilding(false); setLoading(false); return; }
     localStorage.setItem(ACTIVE_SESSION_KEY, activeSession.id);
     const msgs = loadMessages(activeSession.id);
     setMessages(msgs);
@@ -198,12 +203,51 @@ export default function ChatPage({ builds, pipelineType = 'web' }: Props) {
     setBuilding(localStorage.getItem(buildKey(activeSession.id)) === 'true');
     prevBuildsCount.current = builds.length;
     builtPagesRef.current   = [];
+
+    // Response that arrived while user had navigated away — process immediately
+    const pendingRaw = localStorage.getItem(pendingKey(activeSession.id));
+    if (pendingRaw) {
+      try {
+        const { output, ts } = JSON.parse(pendingRaw) as { output: string; ts: number };
+        if (Date.now() - ts < 3_600_000) {
+          localStorage.removeItem(pendingKey(activeSession.id));
+          localStorage.removeItem(loadingKey(activeSession.id));
+          setPendingResponse(output);
+          return;
+        }
+      } catch { /* fall through */ }
+      localStorage.removeItem(pendingKey(activeSession.id));
+    }
+
+    // Restore loading spinner if user navigated away while n8n was still running
+    const loadingTs = localStorage.getItem(loadingKey(activeSession.id));
+    if (loadingTs) {
+      const ts = parseInt(loadingTs, 10);
+      if (!isNaN(ts) && Date.now() - ts < 3_600_000) {
+        setLoading(true);
+      } else {
+        localStorage.removeItem(loadingKey(activeSession.id));
+        setLoading(false);
+      }
+    } else {
+      setLoading(false);
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeSession?.id]);
 
   useEffect(() => {
     if (activeSession) saveMessages(activeSession.id, messages);
   }, [messages, activeSession]);
+
+  // Process a response that arrived while ChatPage was unmounted (user navigated away)
+  useEffect(() => {
+    if (pendingResponse === null) return;
+    setLoading(false);
+    setChatStarted(true);
+    processN8nOutput(pendingResponse);
+    setPendingResponse(null);
+    setTimeout(() => inputRef.current?.focus(), 100);
+  }, [pendingResponse, processN8nOutput]);
 
   useEffect(() => {
     buildingRef.current = building;
@@ -341,9 +385,15 @@ export default function ChatPage({ builds, pipelineType = 'web' }: Props) {
 
   useEffect(() => {
     const handler = (e: Event) => {
-      const detail = (e as CustomEvent<{ output?: string }>).detail;
+      const detail = (e as CustomEvent<{ output?: string; sessionId?: string }>).detail;
       const output = detail?.output;
+      const evtSessionId = detail?.sessionId;
       if (!output || typeof output !== 'string') return;
+      // Clear persistence markers — response has been received
+      if (evtSessionId) {
+        localStorage.removeItem(pendingKey(evtSessionId));
+        localStorage.removeItem(loadingKey(evtSessionId));
+      }
       setLoading(false);
       setChatStarted(true);
       if (isMountedRef.current) {
@@ -414,7 +464,12 @@ export default function ChatPage({ builds, pipelineType = 'web' }: Props) {
     let isProcessing = false;
     try {
       const data = await apiChat(msg, activeSession.id);
-      if (data.processing) { isProcessing = true; return; }
+      if (data.processing) {
+        isProcessing = true;
+        // Persist so we can restore the loading spinner if user navigates away
+        localStorage.setItem(loadingKey(activeSession.id), String(Date.now()));
+        return;
+      }
       const reply: string = data.output ?? 'No response from n8n.';
       if (isMountedRef.current) processN8nOutput(reply);
       else _pendingOutput = reply;
@@ -423,6 +478,7 @@ export default function ChatPage({ builds, pipelineType = 'web' }: Props) {
       const serverData = axiosErr?.response?.data;
       const errText   = serverData?.error ?? (err instanceof Error ? err.message : 'Connection failed');
       const suggestion = serverData?.suggestion;
+      localStorage.removeItem(loadingKey(activeSession.id));
       if (isMountedRef.current) addMessage('system', `Error: ${errText}${suggestion ? `\n${suggestion}` : ''}`);
     } finally {
       _requestInFlight = false;

@@ -56,8 +56,12 @@ function AppInner() {
     onVSCodeOpen: ({ filePath }) => {
       toast('VS Code opening...', 'info', filePath);
     },
-    onChatResponse: ({ output }) => {
-      window.dispatchEvent(new CustomEvent('n8n:chat-response', { detail: { output } }));
+    onChatResponse: ({ sessionId, output }) => {
+      // Persist to localStorage so ChatPage can recover after navigating away
+      if (sessionId) {
+        localStorage.setItem(`n8n-chat-pending-${sessionId}`, JSON.stringify({ output, ts: Date.now() }));
+      }
+      window.dispatchEvent(new CustomEvent('n8n:chat-response', { detail: { sessionId, output } }));
     },
   });
 

@@ -68,7 +68,7 @@ services:
       N8N_CREDENTIALS_DIR: /nas/n8n/credentials
 
       # ── n8n integration ───────────────────────────────────────────────────
-      N8N_CHAT_URL: https://your-n8n-domain.com/webhook/YOUR_WEBHOOK_ID/chat
+      N8N_CHAT_URL: https://n8nherbsrmworld.duckdns.org/webhook/6d8e1ecf-ed7a-42ba-82d7-160a3ee4b5e9/chat
 
       # Mobile pipeline (optional second n8n instance or workflow)
       N8N_MOBILE_CHAT_URL: https://n8nherbsrmworld.duckdns.org/webhook/2b37e203-7b99-4428-9f28-222a30ce9f1d/chat

@@ -243,8 +243,8 @@ export default function ProfilePage() {
         onError={(msg: string) => toast(msg, 'error')}
       />
 
-      {/* ── Webhook URL ── */}
-      <Section
+      {/* ── Webhook URL — admin only ── */}
+      {isAdmin && <Section
         title="Your Webhook URL"
         desc="Paste this URL into both HTTP Request nodes in your n8n workflow to auto-push builds to this dashboard."
         icon={<Webhook size={15} />}
@@ -292,7 +292,7 @@ export default function ProfilePage() {
         <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', margin: '0.75rem 0 0', lineHeight: 1.6 }}>
           Keep this URL private. If it's ever exposed, regenerate it from Settings.
         </p>
-      </Section>
+      </Section>}
 
       {/* ── Email Verification ── */}
       <EmailVerificationSection

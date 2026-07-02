@@ -4,6 +4,15 @@ const jwt = require('jsonwebtoken');
 const { JWT_SECRET, requireAuth } = require('../middleware/auth');
 const { findById } = require('../utils/users');
 
+// Extract the AI reply from n8n's response (handles plain text, {output}, [{output}])
+function extractOutput(text) {
+  try {
+    const data = JSON.parse(text);
+    const obj  = Array.isArray(data) ? data[0] : data;
+    return obj?.output ?? obj?.text ?? obj?.message ?? null;
+  } catch { return null; }
+}
+
 // Try to get user from token but never block the request
 function optionalAuth(req, res, next) {
   const header = req.headers.authorization;
@@ -74,9 +83,8 @@ router.post('/chat', optionalAuth, async (req, res) => {
       return;
     }
     // Forward n8n's reply to the frontend via Socket.io
-    try {
-      const data   = JSON.parse(text);
-      const output = data.output ?? data.text ?? data.message ?? text;
+    {
+      const output = extractOutput(text) ?? text;
       if (output) {
         const sessionUserMap = req.app.get('sessionUserMap');
         const uid = sessionId ? sessionUserMap?.get(sessionId) : null;
@@ -85,9 +93,9 @@ router.post('/chat', optionalAuth, async (req, res) => {
         } else {
           io.emit('chat:response', { sessionId: sessionId || '', output: String(output) });
         }
-        console.log(`[n8n] chat:response forwarded → session=${sessionId}`);
+        console.log(`[n8n] chat:response forwarded → session=${sessionId} output=${String(output).slice(0, 80)}`);
       }
-    } catch { /* response wasn't JSON or had no output field */ }
+    }
   }).catch(err => {
     if (!err.message?.includes('abort') && !err.message?.includes('signal')) {
       console.error(`[n8n] Background error: ${err.message}`);
@@ -206,9 +214,8 @@ router.post('/chat-mobile', optionalAuth, async (req, res) => {
     const text = await r.text();
     console.log(`[n8n-mobile] Response ${r.status}: ${text.slice(0, 200)}`);
     // Forward n8n's reply to the frontend via Socket.io
-    try {
-      const data   = JSON.parse(text);
-      const output = data.output ?? data.text ?? data.message ?? text;
+    {
+      const output = extractOutput(text) ?? text;
       if (output) {
         const uid = sessionId ? sessionUserMap?.get(sessionId) : null;
         if (uid) {
@@ -216,9 +223,9 @@ router.post('/chat-mobile', optionalAuth, async (req, res) => {
         } else {
           io.emit('chat:response', { sessionId: sessionId || '', output: String(output) });
         }
-        console.log(`[n8n-mobile] chat:response forwarded → session=${sessionId}`);
+        console.log(`[n8n-mobile] chat:response forwarded → session=${sessionId} output=${String(output).slice(0, 80)}`);
       }
-    } catch { /* response wasn't JSON or had no output field */ }
+    }
   }).catch(err => {
     if (!err.message?.includes('abort') && !err.message?.includes('signal')) {
       console.error(`[n8n-mobile] Error: ${err.message}`);

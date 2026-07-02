@@ -1,12 +1,39 @@
-// Sends email via Resend HTTP API — works on Render free tier (no SMTP port blocks).
-// Requires SMTP_USER=resend and SMTP_PASS=re_... in environment variables.
+'use strict';
+// Supports two modes:
+// 1. Resend HTTP API  — SMTP_USER=resend, SMTP_PASS=re_...
+// 2. Standard SMTP    — SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS (Gmail, Outlook, etc.)
 
-const https = require('https');
+const nodemailer = require('nodemailer');
+const https      = require('https');
 
-function getApiKey() {
-  return process.env.RESEND_API_KEY ||
-    (process.env.SMTP_USER === 'resend' ? process.env.SMTP_PASS : null);
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function isResend() {
+  return process.env.SMTP_USER === 'resend' && process.env.SMTP_PASS;
 }
+
+function isSmtp() {
+  return process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS
+    && process.env.SMTP_USER !== 'resend';
+}
+
+function isEmailConfigured() {
+  return isResend() || isSmtp();
+}
+
+function getTransporter() {
+  return nodemailer.createTransport({
+    host:   process.env.SMTP_HOST,
+    port:   parseInt(process.env.SMTP_PORT || '587', 10),
+    secure: process.env.SMTP_SECURE === 'true',
+    auth: {
+      user: process.env.SMTP_USER,
+      pass: process.env.SMTP_PASS,
+    },
+  });
+}
+
+// ── Resend HTTP helpers ───────────────────────────────────────────────────────
 
 function httpsPost(url, body, headers) {
   return new Promise((resolve, reject) => {
@@ -52,28 +79,10 @@ function httpsGet(url, headers) {
   });
 }
 
-async function testSmtp() {
-  const key = getApiKey();
-  if (!key) return { ok: false, error: 'Set SMTP_USER=resend and SMTP_PASS=re_... in Render env vars' };
-  try {
-    const res = await httpsGet('https://api.resend.com/domains', { Authorization: `Bearer ${key}` });
-    if (res.status === 200) return { ok: true, service: 'Resend HTTP API' };
-    return { ok: false, error: res.body?.message ?? `HTTP ${res.status}` };
-  } catch (err) {
-    return { ok: false, error: err.message };
-  }
-}
+// ── Email HTML template ───────────────────────────────────────────────────────
 
-async function sendVerificationEmail(toUser, verificationUrl) {
-  const key  = getApiKey();
-  const from = process.env.SMTP_FROM || 'onboarding@resend.dev';
-
-  if (!key) {
-    console.warn('[Email] No Resend API key — set SMTP_USER=resend and SMTP_PASS=re_...');
-    return false;
-  }
-
-  const html = `
+function buildHtml(toUser, verificationUrl) {
+  return `
 <!DOCTYPE html><html><body style="font-family:Arial,sans-serif;background:#f1f5f9;padding:2rem;margin:0">
 <div style="max-width:480px;margin:0 auto;background:#fff;border-radius:12px;padding:2.5rem;box-shadow:0 2px 12px rgba(0,0,0,.08)">
   <div style="text-align:center;margin-bottom:1.5rem">
@@ -97,29 +106,78 @@ async function sendVerificationEmail(toUser, verificationUrl) {
   <p style="color:#cbd5e1;font-size:.75rem;margin:0;word-break:break-all">Or copy: ${verificationUrl}</p>
 </div>
 </body></html>`;
-
-  try {
-    const res = await httpsPost(
-      'https://api.resend.com/emails',
-      { from, to: [toUser.email], subject: 'Verify your account — n8n Pipeline Dashboard', html },
-      { Authorization: `Bearer ${key}` },
-    );
-
-    if (res.status !== 200 && res.status !== 201) {
-      console.error(`[Email] Resend error ${res.status}: ${res.body?.message ?? JSON.stringify(res.body)}`);
-      return false;
-    }
-    console.log(`[Email] Verification sent → ${toUser.email} (id: ${res.body?.id})`);
-    return true;
-  } catch (err) {
-    console.error(`[Email] Send failed: ${err.message}`);
-    return false;
-  }
 }
 
-function isEmailConfigured() {
-  return !!(process.env.RESEND_API_KEY ||
-    (process.env.SMTP_USER === 'resend' && process.env.SMTP_PASS));
+// ── testSmtp ──────────────────────────────────────────────────────────────────
+
+async function testSmtp() {
+  if (isResend()) {
+    const key = process.env.SMTP_PASS;
+    try {
+      const res = await httpsGet('https://api.resend.com/domains', { Authorization: `Bearer ${key}` });
+      if (res.status === 200) return { ok: true, service: 'Resend HTTP API' };
+      return { ok: false, error: res.body?.message ?? `HTTP ${res.status}` };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  }
+
+  if (isSmtp()) {
+    try {
+      const transporter = getTransporter();
+      await transporter.verify();
+      return { ok: true, service: `SMTP (${process.env.SMTP_HOST})` };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  }
+
+  return { ok: false, error: 'No email service configured' };
+}
+
+// ── sendVerificationEmail ─────────────────────────────────────────────────────
+
+async function sendVerificationEmail(toUser, verificationUrl) {
+  const from = process.env.SMTP_FROM || process.env.SMTP_USER;
+  const html = buildHtml(toUser, verificationUrl);
+  const subject = 'Verify your account — n8n Pipeline Dashboard';
+
+  // ── Mode 1: Resend HTTP API ──
+  if (isResend()) {
+    const key = process.env.SMTP_PASS;
+    try {
+      const res = await httpsPost(
+        'https://api.resend.com/emails',
+        { from, to: [toUser.email], subject, html },
+        { Authorization: `Bearer ${key}` },
+      );
+      if (res.status !== 200 && res.status !== 201) {
+        console.error(`[Email] Resend error ${res.status}: ${res.body?.message ?? JSON.stringify(res.body)}`);
+        return false;
+      }
+      console.log(`[Email] Verification sent via Resend → ${toUser.email}`);
+      return true;
+    } catch (err) {
+      console.error(`[Email] Resend send failed: ${err.message}`);
+      return false;
+    }
+  }
+
+  // ── Mode 2: Standard SMTP (Gmail, Outlook, etc.) ──
+  if (isSmtp()) {
+    try {
+      const transporter = getTransporter();
+      await transporter.sendMail({ from, to: toUser.email, subject, html });
+      console.log(`[Email] Verification sent via SMTP → ${toUser.email}`);
+      return true;
+    } catch (err) {
+      console.error(`[Email] SMTP send failed: ${err.message}`);
+      return false;
+    }
+  }
+
+  console.warn('[Email] No email service configured — set SMTP_HOST+SMTP_USER+SMTP_PASS or SMTP_USER=resend+SMTP_PASS=re_...');
+  return false;
 }
 
 module.exports = { sendVerificationEmail, testSmtp, isEmailConfigured };

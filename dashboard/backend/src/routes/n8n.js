@@ -71,7 +71,23 @@ router.post('/chat', optionalAuth, async (req, res) => {
     if (!r.ok) {
       updateState({ pipeline: { n8n: 'error' } });
       io.emit('pipeline:step', { step: 'n8n', status: 'error', error: `HTTP ${r.status}` });
+      return;
     }
+    // Forward n8n's reply to the frontend via Socket.io
+    try {
+      const data   = JSON.parse(text);
+      const output = data.output ?? data.text ?? data.message ?? text;
+      if (output) {
+        const sessionUserMap = req.app.get('sessionUserMap');
+        const uid = sessionId ? sessionUserMap?.get(sessionId) : null;
+        if (uid) {
+          io.to('user:' + uid).emit('chat:response', { sessionId: sessionId || '', output: String(output) });
+        } else {
+          io.emit('chat:response', { sessionId: sessionId || '', output: String(output) });
+        }
+        console.log(`[n8n] chat:response forwarded → session=${sessionId}`);
+      }
+    } catch { /* response wasn't JSON or had no output field */ }
   }).catch(err => {
     if (!err.message?.includes('abort') && !err.message?.includes('signal')) {
       console.error(`[n8n] Background error: ${err.message}`);

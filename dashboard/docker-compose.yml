@@ -36,8 +36,8 @@ services:
       PORT: 3001
 
       # ── Security ──────────────────────────────────────────────────────────
-      # REQUIRED: generate with: openssl rand -hex 32
-      JWT_SECRET: 2b910a42d8852cb80d42042c8691225d0bde895f4fcd78a21ccebf1e4fb3a146
+      # Set in .env file — generate with: openssl rand -hex 32
+      JWT_SECRET: ${JWT_SECRET}
 
       # Shared secret between n8n HTTP Request nodes and this backend
       # Must match x-webhook-secret header in all n8n HTTP Request nodes
@@ -76,13 +76,13 @@ services:
       # n8n REST API key (for stop-execution feature)
       N8N_API_KEY: ""
 
-      # ── Email (Gmail SMTP via App Password) ──────────────────────────────
+      # ── Email — set credentials in .env file ─────────────────────────────
       SMTP_HOST: smtp.gmail.com
       SMTP_PORT: "587"
       SMTP_SECURE: "false"
-      SMTP_USER: sreer7797@gmail.com
-      SMTP_PASS: oeneaeovyojlqkbd
-      SMTP_FROM: sreer7797@gmail.com
+      SMTP_USER: ${SMTP_USER}
+      SMTP_PASS: ${SMTP_PASS}
+      SMTP_FROM: ${SMTP_FROM}
       SKIP_EMAIL_VERIFICATION: "false"
 
       # ── GitHub (optional) ─────────────────────────────────────────────────

@@ -103,26 +103,28 @@ services:
       FTP_REMOTE_PATH: /wp-content/themes
 
     volumes:
+      # Relative paths work on both Windows (local testing) and NAS (Linux).
+      # docker-compose.yml is in dashboard/ so .. points to Website-Generator/
       # Generated project files — shared with n8n (SAME host path n8n writes to)
-      - /n8n_data/Website-Generator/projects:/nas/projects
+      - ../projects:/nas/projects
 
       # Persistent data — users.json, db.json, logs survive restarts and updates
-      - /n8n_data/Website-Generator/dashboard-data:/nas/data
+      - ../dashboard-data:/nas/data
 
       # Additional storage directories
-      - /n8n_data/Website-Generator/uploads:/nas/uploads
-      - /n8n_data/Website-Generator/previews:/nas/previews
-      - /n8n_data/Website-Generator/wordpress:/nas/wordpress
-      - /n8n_data/Website-Generator/mobile-apps:/nas/mobile
-      - /n8n_data/Website-Generator/shared/temp:/nas/temp
-      - /n8n_data/Website-Generator/shared/cache:/nas/cache
-      - /n8n_data/Website-Generator/shared/exports:/nas/exports
-      - /n8n_data/Website-Generator/backups:/nas/backups
+      - ../uploads:/nas/uploads
+      - ../previews:/nas/previews
+      - ../wordpress:/nas/wordpress
+      - ../mobile-apps:/nas/mobile
+      - ../shared/temp:/nas/temp
+      - ../shared/cache:/nas/cache
+      - ../shared/exports:/nas/exports
+      - ../backups:/nas/backups
 
       # n8n data (read-only from dashboard)
-      - /n8n_data/Website-Generator/n8n/data:/nas/n8n/data:ro
-      - /n8n_data/Website-Generator/n8n/workflows:/nas/n8n/workflows:ro
-      - /n8n_data/Website-Generator/n8n/credentials:/nas/n8n/credentials:ro
+      - ../n8n/data:/nas/n8n/data:ro
+      - ../n8n/workflows:/nas/n8n/workflows:ro
+      - ../n8n/credentials:/nas/n8n/credentials:ro
 
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:3001/api/health"]

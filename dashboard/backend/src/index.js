@@ -3,24 +3,28 @@ require('dotenv').config();
 // ── Storage init — must run before any route is registered ───────────────────
 require('./config/storage').initStorage();
 
-// ── Startup safety checks ─────────────────────────────────────────────────────
+// ── Startup safety checks — runs before auth.js so the process exits cleanly ─
+// (auth.js also exits on missing JWT_SECRET; these checks catch bad-value cases)
 const INSECURE_DEFAULTS = new Set([
   'change-this-secret-in-production',
   'change_this_to_a_long_random_secret_123',
   'CHANGE_THIS_BEFORE_DEPLOYING',
+  'change_this_to_a_random_secret',
 ]);
-if (process.env.NODE_ENV === 'production' && INSECURE_DEFAULTS.has(process.env.JWT_SECRET)) {
-  console.error('[FATAL] JWT_SECRET is set to a known insecure default. Set a real secret before deploying.');
+if (INSECURE_DEFAULTS.has(process.env.JWT_SECRET)) {
+  console.error('[FATAL] JWT_SECRET is set to a known insecure placeholder. Generate one with: openssl rand -hex 32');
   process.exit(1);
 }
 
-const express = require('express');
-const http = require('http');
-const path = require('path');
+const express    = require('express');
+const http       = require('http');
+const path       = require('path');
 const { Server } = require('socket.io');
-const cors = require('cors');
+const cors       = require('cors');
+const helmet     = require('helmet');
+const rateLimit  = require('express-rate-limit');
 const fileUpload = require('express-fileupload');
-const jwt = require('jsonwebtoken');
+const jwt        = require('jsonwebtoken');
 
 const webhookRoutes    = require('./routes/webhook');
 const githubRoutes     = require('./routes/github');
@@ -34,14 +38,14 @@ const githubOauthRoutes = require('./routes/github-oauth');
 const adminRoutes       = require('./routes/admin');
 const db               = require('./db');
 const { findById }     = require('./utils/users');
-const { JWT_SECRET, requireAuth } = require('./middleware/auth');
+const { requireAuth } = require('./middleware/auth');
+const JWT_SECRET = process.env.JWT_SECRET; // already validated by auth.js startup check
 
 const app = express();
 const httpServer = http.createServer(app);
 
-const corsOrigin = process.env.FRONTEND_URL === '*'
-  ? true
-  : (process.env.FRONTEND_URL || 'http://localhost:5173');
+// Never allow wildcard CORS — require an explicit URL
+const corsOrigin = process.env.FRONTEND_URL || 'http://localhost:5173';
 
 const io = new Server(httpServer, {
   cors: {
@@ -77,12 +81,23 @@ app.set('sessionUserMap', sessionUserMap);
 const sessionProjectTypeMap = new Map();
 app.set('sessionProjectTypeMap', sessionProjectTypeMap);
 
+// Trust the first proxy hop (Cloudflare Tunnel / NGINX) so req.ip is the real client IP
+app.set('trust proxy', 1);
+
+app.use(helmet());
 app.use(cors({ origin: corsOrigin }));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 app.use(fileUpload({ limits: { fileSize: 50 * 1024 * 1024 } }));
 
-// Routes
+// Rate limiting on auth endpoints — brute-force protection
+const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 20, standardHeaders: true, legacyHeaders: false });
+const registerLimiter = rateLimit({ windowMs: 60 * 60 * 1000, max: 10, standardHeaders: true, legacyHeaders: false });
+
+// Routes — apply rate limiters before mounting the auth router
+app.post('/api/auth/login',    authLimiter);
+app.post('/api/auth/register', registerLimiter);
+app.patch('/api/auth/password', authLimiter);
 app.use('/api/auth',          authRoutes);
 app.use('/api/auth/github',   githubOauthRoutes);
 app.use('/api/admin',         adminRoutes);
@@ -169,6 +184,14 @@ app.use('/api', (req, res) => {
 
 app.get('*', (req, res) => {
   res.sendFile(path.join(publicDir, 'index.html'));
+});
+
+// Global error handler — never leak stack traces to the client
+// eslint-disable-next-line no-unused-vars
+app.use((err, req, res, next) => {
+  console.error('[ERROR]', err);
+  const msg = process.env.NODE_ENV === 'production' ? 'Internal server error' : err.message;
+  res.status(err.status || 500).json({ error: msg });
 });
 
 const PORT = process.env.PORT || 3001;

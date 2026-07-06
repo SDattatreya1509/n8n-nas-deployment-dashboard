@@ -90,7 +90,8 @@ function ensureDir(dirPath) {
     fs.mkdirSync(dirPath, { recursive: true });
   } catch (err) {
     if (err.code !== 'EEXIST') {
-      console.error(`[storage] Cannot create ${dirPath}: ${err.message}`);
+      // Re-throw so the caller knows the directory is unusable (e.g. read-only mount)
+      throw err;
     }
   }
 }

@@ -25,16 +25,27 @@ function load() {
   return cache;
 }
 
+function flushSync() {
+  if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
+  if (!cache) return;
+  try {
+    // Atomic write — avoids file truncation on kill mid-write
+    const tmp = DB_PATH + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(cache, null, 2), 'utf8');
+    fs.renameSync(tmp, DB_PATH);
+  } catch (e) {
+    console.error('[DB] Write failed:', e.message);
+  }
+}
+
 function flush() {
   if (flushTimer) clearTimeout(flushTimer);
-  flushTimer = setTimeout(() => {
-    try {
-      fs.writeFileSync(DB_PATH, JSON.stringify(cache, null, 2), 'utf8');
-    } catch (e) {
-      console.error('[DB] Write failed:', e.message);
-    }
-  }, 300);
+  flushTimer = setTimeout(flushSync, 300);
 }
+
+// Persist immediately on graceful shutdown so no build records are lost
+process.once('SIGTERM', () => { flushSync(); process.exit(0); });
+process.once('SIGINT',  () => { flushSync(); process.exit(0); });
 
 function addBuild(build, type = 'web') {
   load();

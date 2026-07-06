@@ -1,9 +1,10 @@
 const jwt        = require('jsonwebtoken');
 const { findById } = require('../utils/users');
 
-const JWT_SECRET = process.env.JWT_SECRET || 'change-this-secret-in-production';
-if (!process.env.JWT_SECRET) {
-  console.warn('[auth] WARNING: JWT_SECRET env var not set — using insecure default. Set JWT_SECRET in Render environment.');
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+  console.error('[FATAL] JWT_SECRET environment variable is not set. Refusing to start.');
+  process.exit(1);
 }
 
 function signToken(userId) {
@@ -11,8 +12,9 @@ function signToken(userId) {
 }
 
 function requireAuth(req, res, next) {
-  const header     = req.headers.authorization;
-  const queryToken = req.query._token; // for OAuth redirect flows
+  const header = req.headers.authorization;
+  // _token query param is only used for the GitHub OAuth redirect flow; never log this endpoint
+  const queryToken = req.query._token;
   const raw        = header?.startsWith('Bearer ') ? header.slice(7) : queryToken;
 
   if (!raw) return res.status(401).json({ error: 'Unauthorised — no token' });
@@ -37,4 +39,4 @@ function requireAdmin(req, res, next) {
   });
 }
 
-module.exports = { signToken, requireAuth, requireAdmin, JWT_SECRET };
+module.exports = { signToken, requireAuth, requireAdmin };

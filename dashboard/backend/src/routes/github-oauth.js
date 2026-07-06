@@ -1,5 +1,6 @@
 const express    = require('express');
 const router     = express.Router();
+const crypto     = require('crypto');
 const { Octokit } = require('@octokit/rest');
 const { updateUser, safeUser } = require('../utils/users');
 const { requireAuth }          = require('../middleware/auth');
@@ -9,9 +10,20 @@ const CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET;
 // BACKEND_URL is where GitHub sends the OAuth callback (this server)
 const BACKEND_URL   = process.env.BACKEND_URL || 'http://localhost:3001';
 // FRONTEND_URL is where the browser goes after OAuth completes
-const FRONTEND_URL  = process.env.FRONTEND_URL === '*'
-  ? BACKEND_URL
-  : (process.env.FRONTEND_URL || 'http://localhost:5173');
+// Never allow '*' as it would redirect to BACKEND_URL (acceptable fallback for OAuth)
+const FRONTEND_URL  = (process.env.FRONTEND_URL && process.env.FRONTEND_URL !== '*')
+  ? process.env.FRONTEND_URL
+  : (process.env.BACKEND_URL || 'http://localhost:5173');
+
+// In-memory CSRF state map: nonce → { userId, expiresAt }
+// Entries expire after 10 minutes to bound memory use
+const oauthStateMap = new Map();
+setInterval(() => {
+  const now = Date.now();
+  for (const [k, v] of oauthStateMap) {
+    if (v.expiresAt < now) oauthStateMap.delete(k);
+  }
+}, 5 * 60 * 1000);
 
 // GET /api/auth/github/connect?_token=<jwt>
 // Redirects user to GitHub OAuth authorization page
@@ -19,12 +31,14 @@ router.get('/connect', requireAuth, (req, res) => {
   if (!CLIENT_ID) {
     return res.status(500).json({ error: 'GITHUB_CLIENT_ID not configured on server' });
   }
-  const state  = Buffer.from(req.user.id).toString('base64url');
+  // CSRF protection: use a random one-time nonce as OAuth state
+  const nonce = crypto.randomBytes(24).toString('hex');
+  oauthStateMap.set(nonce, { userId: req.user.id, expiresAt: Date.now() + 10 * 60 * 1000 });
   const params = new URLSearchParams({
     client_id:    CLIENT_ID,
     redirect_uri: `${BACKEND_URL}/api/auth/github/callback`,
     scope:        'repo',
-    state,
+    state:        nonce,
   });
   res.redirect(`https://github.com/login/oauth/authorize?${params}`);
 });
@@ -40,12 +54,17 @@ router.get('/callback', async (req, res) => {
     return res.redirect(`${FRONTEND_URL}/register?step=github&error=missing_params`);
   }
 
-  let userId;
-  try { userId = Buffer.from(state, 'base64url').toString('utf8'); }
-  catch { return res.redirect(`${FRONTEND_URL}/register?step=github&error=invalid_state`); }
+  // Validate CSRF nonce — one-time use, expires after 10 minutes
+  const stateData = oauthStateMap.get(state);
+  if (!stateData || stateData.expiresAt < Date.now()) {
+    oauthStateMap.delete(state);
+    return res.redirect(`${FRONTEND_URL}/register?step=github&error=invalid_state`);
+  }
+  oauthStateMap.delete(state); // consume the nonce
+  const userId = stateData.userId;
 
   try {
-    // Exchange code for access token
+    // Exchange GitHub code for access token
     const tokenRes = await fetch('https://github.com/login/oauth/access_token', {
       method:  'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },

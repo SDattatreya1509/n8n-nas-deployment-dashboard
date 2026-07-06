@@ -121,10 +121,9 @@ services:
       - ../shared/exports:/nas/exports
       - ../backups:/nas/backups
 
-      # n8n data (read-only from dashboard)
+      # n8n data (read-only from dashboard — credentials NOT mounted; not needed by the dashboard)
       - ../n8n/data:/nas/n8n/data:ro
       - ../n8n/workflows:/nas/n8n/workflows:ro
-      - ../n8n/credentials:/nas/n8n/credentials:ro
 
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:3001/api/health"]

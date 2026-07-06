@@ -13,7 +13,10 @@ function loadUsers() {
 
 function saveUsers(users) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
-  fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
+  // Atomic write: write to temp file then rename to avoid corruption on kill
+  const tmp = USERS_FILE + '.tmp';
+  fs.writeFileSync(tmp, JSON.stringify(users, null, 2));
+  fs.renameSync(tmp, USERS_FILE);
 }
 
 function findByEmail(email) {
@@ -35,6 +38,13 @@ function findByVerificationToken(token) {
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 async function createUser({ name, email, password }) {
+  if (typeof name !== 'string' || name.trim().length > 100)
+    throw new Error('Name must be 1–100 characters');
+  if (typeof email !== 'string' || email.length > 254)
+    throw new Error('Invalid email address');
+  if (typeof password !== 'string' || password.length > 128)
+    throw new Error('Password must be at most 128 characters');
+
   const normalizedEmail = email.trim().toLowerCase();
   if (!EMAIL_REGEX.test(normalizedEmail)) {
     throw new Error('Invalid email address');
@@ -90,25 +100,41 @@ async function verifyPassword(email, password) {
   return ok ? user : null;
 }
 
+const ALLOWED_USER_UPDATE_FIELDS = new Set([
+  'name', 'email', 'passwordHash', 'role', 'emailVerified',
+  'verificationToken', 'verificationExpiry', 'webhookToken', 'github',
+]);
+
 function updateUser(id, updates) {
   const users = loadUsers();
   const idx   = users.findIndex(u => u.id === id);
   if (idx === -1) throw new Error('User not found');
-  users[idx] = { ...users[idx], ...updates };
+  const safeUpdates = Object.fromEntries(
+    Object.entries(updates).filter(([k]) => ALLOWED_USER_UPDATE_FIELDS.has(k))
+  );
+  users[idx] = { ...users[idx], ...safeUpdates };
   saveUsers(users);
   return users[idx];
 }
 
 // Strip sensitive fields before sending to client
 function safeUser(user) {
-  const { passwordHash, verificationToken, verificationExpiry, ...safe } = user;
+  // eslint-disable-next-line no-unused-vars
+  const { passwordHash, verificationToken, verificationExpiry, webhookToken, ...safe } = user;
   // Accounts created before email verification was added default to verified
   if (safe.emailVerified === undefined) safe.emailVerified = true;
+  return safe;
+}
+
+// Expose webhookToken only for the authenticated user's own profile
+function safeUserWithToken(user) {
+  const safe = safeUser(user);
+  safe.webhookToken = user.webhookToken;
   return safe;
 }
 
 module.exports = {
   loadUsers, findByEmail, findById, findByWebhookToken, findByVerificationToken,
   createUser, verifyPassword, updateUser, resetWebhookToken, refreshVerificationToken,
-  deleteUser, safeUser,
+  deleteUser, safeUser, safeUserWithToken,
 };

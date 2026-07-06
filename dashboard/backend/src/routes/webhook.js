@@ -1,6 +1,7 @@
 const express = require('express');
 const router  = express.Router();
 const { v4: uuidv4 } = require('uuid');
+const crypto = require('crypto');
 const fs   = require('fs');
 const path = require('path');
 const { Octokit }            = require('@octokit/rest');
@@ -47,6 +48,7 @@ function saveFileToDisk(build, userId = null, projectType = 'website') {
     const savedFiles = [];
     let match;
 
+    const resolvedDir = path.resolve(dir);
     while ((match = fileRegex.exec(build.content)) !== null) {
       const relPath     = match[1].trim();
       const fileContent = match[2].replace(/\n$/, '');
@@ -58,7 +60,13 @@ function saveFileToDisk(build, userId = null, projectType = 'website') {
       const ext = path.extname(baseName).toLowerCase();
       if (ext && !VALID_THEME_EXTS.has(ext)) continue;
 
-      const fullPath = path.join(dir, relPath);
+      // Guard against path traversal — relPath must stay inside dir
+      const fullPath = path.resolve(dir, relPath);
+      if (!fullPath.startsWith(resolvedDir + path.sep) && fullPath !== resolvedDir) {
+        console.warn(`[Webhook] Path traversal blocked: ${relPath}`);
+        continue;
+      }
+
       fs.mkdirSync(path.dirname(fullPath), { recursive: true });
       fs.writeFileSync(fullPath, fileContent, 'utf8');
       savedFiles.push(fullPath);
@@ -84,7 +92,11 @@ function saveFileToDisk(build, userId = null, projectType = 'website') {
       return null;
     }
 
-    const fullPath = path.join(dir, fileName);
+    const fullPath = path.resolve(dir, fileName);
+    if (!fullPath.startsWith(path.resolve(dir) + path.sep) && fullPath !== path.resolve(dir)) {
+      console.warn(`[Webhook] Path traversal blocked (fallback): ${fileName}`);
+      return null;
+    }
     fs.writeFileSync(fullPath, build.content, 'utf8');
     console.log(`[Webhook] Saved (fallback) → ${fullPath}`);
     return fullPath;
@@ -201,9 +213,20 @@ async function pushToGitHub(user, build) {
 // ─── Webhook secret verification ─────────────────────────────────────────────
 function verifyWebhookSecret(req, res) {
   const secret = process.env.N8N_WEBHOOK_SECRET;
-  if (!secret) return true; // not configured — allow all (dev mode)
-  const provided = req.headers['x-webhook-secret'] || req.body?.webhookSecret;
-  if (provided !== secret) {
+  if (!secret) {
+    // In production, a missing secret is a misconfiguration — deny everything
+    if (process.env.NODE_ENV === 'production') {
+      res.status(500).json({ success: false, error: 'Server misconfiguration' });
+      return false;
+    }
+    return true; // dev/local only
+  }
+  const provided = String(req.headers['x-webhook-secret'] || req.body?.webhookSecret || '');
+  const secretBuf   = Buffer.from(secret);
+  const providedBuf = Buffer.allocUnsafe(secretBuf.length).fill(0);
+  Buffer.from(provided).copy(providedBuf, 0, 0, Math.min(provided.length, secretBuf.length));
+  // Constant-time compare (also checks length parity)
+  if (provided.length !== secret.length || !crypto.timingSafeEqual(secretBuf, providedBuf)) {
     res.status(401).json({ success: false, error: 'Invalid webhook secret' });
     return false;
   }
@@ -253,7 +276,7 @@ router.post('/n8n', (req, res) => {
   const userRecord  = userId ? findById(userId) : null;
   const userSegment = userRecord
     ? userRecord.name.toLowerCase().replace(/[^a-z0-9_-]/gi, '_')
-    : (userId || 'shared');
+    : (userId ? String(userId).replace(/[^a-z0-9_-]/gi, '_') : 'shared');
 
   // Resolve projectType: payload → session map → default 'website'
   const sessionPT = (build.sessionId && sessionProjectTypeMap)
@@ -266,7 +289,8 @@ router.post('/n8n', (req, res) => {
   if (localFilePath) build.localFilePath = localFilePath;
 
   // ── Push to user's GitHub repo ───────────────────────────────────────────────
-  const userToken = req.query.userToken || req.body.userToken;
+  // userToken must come from the request body only — never from query string (logs)
+  const userToken = req.body.userToken;
   if (userToken) {
     const user = findByWebhookToken(userToken);
     if (user) {
@@ -337,7 +361,7 @@ router.post('/wp', (req, res) => {
   const wpUserRecord  = userId ? findById(userId) : null;
   const wpUserSegment = wpUserRecord
     ? wpUserRecord.name.toLowerCase().replace(/[^a-z0-9_-]/gi, '_')
-    : (userId || 'shared');
+    : (userId ? String(userId).replace(/[^a-z0-9_-]/gi, '_') : 'shared');
 
   const wpSessionPT = (build.sessionId && sessionProjectTypeMap)
     ? (sessionProjectTypeMap.get(build.sessionId) ?? null)
@@ -347,8 +371,8 @@ router.post('/wp', (req, res) => {
   const localFilePath = saveFileToDisk(build, wpUserSegment, build.projectType);
   if (localFilePath) build.localFilePath = localFilePath;
 
-  // Push to GitHub if userToken provided
-  const userToken = req.query.userToken || req.body.userToken;
+  // Push to GitHub if userToken provided (body only — never query string)
+  const userToken = req.body.userToken;
   if (userToken) {
     const user = findByWebhookToken(userToken);
     if (user) {
@@ -407,14 +431,16 @@ router.post('/chat-response', (req, res) => {
   if (userId) {
     io.to('user:' + userId).emit('chat:response', { sessionId: sessionId || '', output: String(output) });
   } else {
-    io.emit('chat:response', { sessionId: sessionId || '', output: String(output) });
+    // Unknown session — drop rather than broadcast to all users (would leak AI responses)
+    console.warn(`[Webhook] chat:response dropped — unknown sessionId: ${sessionId}`);
+    return res.json({ ok: true });
   }
 
   // Lead PM replied — n8n is no longer waiting on user input, reset pipeline step
   updateState({ pipeline: { n8n: 'idle' } });
   io.emit('pipeline:step', { step: 'n8n', status: 'idle' });
 
-  console.log(`[Webhook] chat:response session=${sessionId} user=${userId ?? 'broadcast'} → "${String(output).slice(0, 80)}"`);
+  console.log(`[Webhook] chat:response session=${sessionId} user=${userId} → "${String(output).slice(0, 80)}"`);
   res.json({ ok: true });
 });
 

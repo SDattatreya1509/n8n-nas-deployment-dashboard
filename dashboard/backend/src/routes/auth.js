@@ -1,9 +1,11 @@
 const express = require('express');
 const router  = express.Router();
 const bcrypt  = require('bcryptjs');
+const crypto  = require('crypto');
 const {
   createUser, verifyPassword, updateUser, findByEmail, findById,
-  findByVerificationToken, refreshVerificationToken, deleteUser, safeUser, loadUsers,
+  findByVerificationToken, refreshVerificationToken, deleteUser,
+  safeUser, safeUserWithToken, loadUsers,
 } = require('../utils/users');
 const { signToken, requireAuth } = require('../middleware/auth');
 const { sendVerificationEmail, testSmtp, isEmailConfigured } = require('../utils/email');
@@ -15,8 +17,8 @@ router.post('/register', async (req, res) => {
   const { name, email, password } = req.body ?? {};
   if (!name || !email || !password)
     return res.status(400).json({ error: 'name, email and password are required' });
-  if (password.length < 6)
-    return res.status(400).json({ error: 'Password must be at least 6 characters' });
+  if (password.length < 8)
+    return res.status(400).json({ error: 'Password must be at least 8 characters' });
 
   try {
     let user  = await createUser({ name, email, password });
@@ -33,7 +35,9 @@ router.post('/register', async (req, res) => {
 
     res.status(201).json({ token, user: safeUser(user) });
   } catch (err) {
-    res.status(409).json({ error: err.message });
+    // Normalise error to avoid leaking whether the email already exists
+    const known = err.message === 'Email already registered' || err.message?.includes('email');
+    res.status(409).json({ error: known ? 'Registration failed. Check your details and try again.' : 'Registration failed. Please try again.' });
   }
 });
 
@@ -57,7 +61,8 @@ router.post('/login', async (req, res) => {
 
 // ── GET /api/auth/me ──────────────────────────────────────────────────────────
 router.get('/me', requireAuth, (req, res) => {
-  res.json({ user: safeUser(req.user) });
+  // Include webhookToken for the user's own profile only
+  res.json({ user: safeUserWithToken(req.user) });
 });
 
 // ── GET /api/auth/verify/:token ───────────────────────────────────────────────
@@ -116,7 +121,8 @@ router.patch('/profile', requireAuth, async (req, res) => {
     const updated = updateUser(req.user.id, updates);
     res.json({ user: safeUser(updated) });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('[profile] update failed:', err);
+    res.status(500).json({ error: 'Profile update failed. Please try again.' });
   }
 });
 
@@ -125,8 +131,8 @@ router.patch('/password', requireAuth, async (req, res) => {
   const { currentPassword, newPassword } = req.body ?? {};
   if (!currentPassword || !newPassword)
     return res.status(400).json({ error: 'currentPassword and newPassword are required' });
-  if (newPassword.length < 6)
-    return res.status(400).json({ error: 'New password must be at least 6 characters' });
+  if (newPassword.length < 8)
+    return res.status(400).json({ error: 'New password must be at least 8 characters' });
 
   const ok = await bcrypt.compare(currentPassword, req.user.passwordHash);
   if (!ok) return res.status(401).json({ error: 'Current password is incorrect' });
@@ -158,7 +164,8 @@ router.delete('/account', requireAuth, async (req, res) => {
     deleteUser(req.user.id);
     res.json({ message: 'Account deleted successfully.' });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('[account] delete failed:', err);
+    res.status(500).json({ error: 'Account deletion failed. Please try again.' });
   }
 });
 
@@ -168,13 +175,25 @@ router.delete('/account', requireAuth, async (req, res) => {
 router.get('/bootstrap-verify', async (req, res) => {
   const secret = process.env.BOOTSTRAP_TOKEN;
   if (!secret) return res.status(404).json({ error: 'Not available' });
-  if (req.query.token !== secret) return res.status(403).json({ error: 'Invalid token' });
+
+  // Timing-safe comparison to prevent enumeration of the token
+  const provided = String(req.query.token || '');
+  const secretBuf   = Buffer.from(secret);
+  const providedBuf = Buffer.allocUnsafe(secretBuf.length).fill(0);
+  Buffer.from(provided).copy(providedBuf, 0, 0, Math.min(provided.length, secretBuf.length));
+  if (provided.length !== secret.length || !crypto.timingSafeEqual(secretBuf, providedBuf)) {
+    return res.status(403).json({ error: 'Invalid token' });
+  }
+
   const { email } = req.query;
   if (!email) return res.status(400).json({ error: 'email query param required' });
   const user = findByEmail(email);
-  if (!user) return res.status(404).json({ error: 'User not found' });
+  // Return same response whether user exists or not to avoid leaking email existence
+  if (!user) return res.status(200).json({ ok: true, message: 'Done. You can now log in.' });
+
   const updated = updateUser(user.id, { emailVerified: true, role: 'admin' });
-  res.json({ ok: true, message: `${updated.name} is now verified and admin. You can log in.` });
+  console.warn(`[bootstrap-verify] Account promoted to admin: ${updated.email} — remove BOOTSTRAP_TOKEN from .env now`);
+  res.json({ ok: true, message: 'Account verified and promoted to admin. Remove BOOTSTRAP_TOKEN from your .env file now.' });
 });
 
 // ── GET /api/auth/test-smtp — admin only, verifies SMTP credentials ───────────

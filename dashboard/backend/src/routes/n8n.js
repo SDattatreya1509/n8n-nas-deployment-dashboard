@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const jwt = require('jsonwebtoken');
-const { JWT_SECRET, requireAuth } = require('../middleware/auth');
+const { requireAuth } = require('../middleware/auth');
 const { findById } = require('../utils/users');
 
 // Extract the AI reply from n8n's response (handles plain text, {output}, [{output}])
@@ -19,7 +19,7 @@ function optionalAuth(req, res, next) {
   const raw    = header?.startsWith('Bearer ') ? header.slice(7) : null;
   if (raw) {
     try {
-      const payload = jwt.verify(raw, JWT_SECRET);
+      const payload = jwt.verify(raw, process.env.JWT_SECRET);
       req.user = findById(payload.sub) ?? null;
     } catch {}
   }
@@ -89,10 +89,11 @@ router.post('/chat', optionalAuth, async (req, res) => {
         const uid = sessionId ? sessionUserMap?.get(sessionId) : null;
         if (uid) {
           io.to('user:' + uid).emit('chat:response', { sessionId: sessionId || '', output: String(output) });
+          console.log(`[n8n] chat:response forwarded → session=${sessionId} output=${String(output).slice(0, 80)}`);
         } else {
-          io.emit('chat:response', { sessionId: sessionId || '', output: String(output) });
+          // Unknown session — drop rather than broadcast to all users
+          console.warn(`[n8n] chat:response dropped — unknown sessionId: ${sessionId}`);
         }
-        console.log(`[n8n] chat:response forwarded → session=${sessionId} output=${String(output).slice(0, 80)}`);
       }
     }
   }).catch(err => {
@@ -218,10 +219,11 @@ router.post('/chat-mobile', optionalAuth, async (req, res) => {
         const uid = sessionId ? sessionUserMap?.get(sessionId) : null;
         if (uid) {
           io.to('user:' + uid).emit('chat:response', { sessionId: sessionId || '', output: String(output) });
+          console.log(`[n8n-mobile] chat:response forwarded → session=${sessionId} output=${String(output).slice(0, 80)}`);
         } else {
-          io.emit('chat:response', { sessionId: sessionId || '', output: String(output) });
+          // Unknown session — drop rather than broadcast to all users
+          console.warn(`[n8n-mobile] chat:response dropped — unknown sessionId: ${sessionId}`);
         }
-        console.log(`[n8n-mobile] chat:response forwarded → session=${sessionId} output=${String(output).slice(0, 80)}`);
       }
     }
   }).catch(err => {

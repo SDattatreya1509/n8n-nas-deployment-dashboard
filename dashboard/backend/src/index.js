@@ -73,6 +73,10 @@ app.set('io', io);
 const sessionUserMap = new Map();
 app.set('sessionUserMap', sessionUserMap);
 
+// sessionId → projectType map (populated by POST /api/n8n/chat)
+const sessionProjectTypeMap = new Map();
+app.set('sessionProjectTypeMap', sessionProjectTypeMap);
+
 app.use(cors({ origin: corsOrigin }));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
@@ -157,6 +161,12 @@ io.on('connection', (socket) => {
 // Serve React dashboard build — must be after all API routes
 const publicDir = path.join(__dirname, '..', 'public');
 app.use(express.static(publicDir));
+
+// Return JSON 404 for unknown API routes instead of sending index.html
+app.use('/api', (req, res) => {
+  res.status(404).json({ error: `API route not found: ${req.method} ${req.path}` });
+});
+
 app.get('*', (req, res) => {
   res.sendFile(path.join(publicDir, 'index.html'));
 });

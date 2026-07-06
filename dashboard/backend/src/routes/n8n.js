@@ -53,7 +53,6 @@ router.post('/chat', optionalAuth, async (req, res) => {
     setTimeout(() => sessionUserMap.delete(sessionId), 2 * 60 * 60 * 1000);
 
     // Store projectType so webhook can route files correctly
-    if (!req.app.get('sessionProjectTypeMap')) req.app.set('sessionProjectTypeMap', new Map());
     const sessionProjectTypeMap = req.app.get('sessionProjectTypeMap');
     sessionProjectTypeMap.set(sessionId, projectType);
     setTimeout(() => sessionProjectTypeMap.delete(sessionId), 2 * 60 * 60 * 1000);
@@ -192,7 +191,6 @@ router.post('/chat-mobile', optionalAuth, async (req, res) => {
     setTimeout(() => sessionUserMap.delete(sessionId), 2 * 60 * 60 * 1000);
 
     // Store projectType so webhook can route files correctly
-    if (!req.app.get('sessionProjectTypeMap')) req.app.set('sessionProjectTypeMap', new Map());
     const sessionProjectTypeMap = req.app.get('sessionProjectTypeMap');
     sessionProjectTypeMap.set(sessionId, projectType);
     setTimeout(() => sessionProjectTypeMap.delete(sessionId), 2 * 60 * 60 * 1000);

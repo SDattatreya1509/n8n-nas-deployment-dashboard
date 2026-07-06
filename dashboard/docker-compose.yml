@@ -41,7 +41,7 @@ services:
 
       # Shared secret between n8n HTTP Request nodes and this backend
       # Must match x-webhook-secret header in all n8n HTTP Request nodes
-      N8N_WEBHOOK_SECRET: ""
+      N8N_WEBHOOK_SECRET: ${N8N_WEBHOOK_SECRET:-}
 
       # ── Network ───────────────────────────────────────────────────────────
       # Set to your Cloudflare Tunnel public HTTPS URL after creating the tunnel

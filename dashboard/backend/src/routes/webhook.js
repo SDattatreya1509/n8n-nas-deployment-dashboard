@@ -6,6 +6,7 @@ const path = require('path');
 const { Octokit }            = require('@octokit/rest');
 const { findByWebhookToken, findById } = require('../utils/users');
 const db                     = require('../db');
+const { requireAuth }        = require('../middleware/auth');
 
 const { getProjectTypeDir } = require('../config/storage');
 
@@ -418,7 +419,6 @@ router.post('/chat-response', (req, res) => {
 });
 
 // ─── GET /api/webhook/builds ──────────────────────────────────────────────────
-const { requireAuth } = require('../middleware/auth');
 router.get('/builds', requireAuth, (req, res) => {
   const { builds } = require('../db').getBuildsForUser(req.user.id);
   res.json(builds);

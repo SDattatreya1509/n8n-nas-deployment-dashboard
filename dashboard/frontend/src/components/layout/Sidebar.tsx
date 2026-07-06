@@ -33,7 +33,7 @@ export default function Sidebar({ serverOnline, buildsCount, wpBuildsCount }: Pr
         {/* ── Web Pipeline ── */}
         <div className="sidebar-section">
           <div className="sidebar-section-label" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-            <Code2 size={8} style={{ opacity: 0.7 }} /> Web Pipeline
+            <Code2 size={8} style={{ color: 'var(--accent-teal)', opacity: 0.9 }} /> Web Pipeline
             {buildsCount > 0 && (
               <span style={{
                 marginLeft: 'auto', fontSize: '0.6rem', fontWeight: 700,
@@ -71,7 +71,7 @@ export default function Sidebar({ serverOnline, buildsCount, wpBuildsCount }: Pr
         {/* ── WordPress Pipeline ── */}
         <div className="sidebar-section">
           <div className="sidebar-section-label" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-            <Layers size={8} style={{ opacity: 0.7 }} /> WordPress Pipeline
+            <Layers size={8} style={{ color: 'var(--accent-purple)', opacity: 0.9 }} /> WordPress Pipeline
             {wpBuildsCount > 0 && (
               <span style={{
                 marginLeft: 'auto', fontSize: '0.6rem', fontWeight: 700,
@@ -91,7 +91,7 @@ export default function Sidebar({ serverOnline, buildsCount, wpBuildsCount }: Pr
         {/* ── Mobile App Pipeline ── */}
         <div className="sidebar-section">
           <div className="sidebar-section-label" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-            <Smartphone size={8} style={{ opacity: 0.7 }} /> Mobile App Pipeline
+            <Smartphone size={8} style={{ color: 'var(--accent-blue)', opacity: 0.9 }} /> Mobile App Pipeline
           </div>
           <NavLink to="/mobile-projects" className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}>
             <Smartphone className="nav-icon" size={15} /> Mobile App Projects
@@ -127,13 +127,27 @@ export default function Sidebar({ serverOnline, buildsCount, wpBuildsCount }: Pr
 
       {/* Status footer */}
       <div className="sidebar-status">
-        <div className="status-row">
+        <div className="status-row" style={{
+          padding: '0.4rem 0.625rem',
+          background: serverOnline ? 'rgba(74,222,128,0.06)' : 'rgba(248,113,113,0.06)',
+          border: `1px solid ${serverOnline ? 'rgba(74,222,128,0.18)' : 'rgba(248,113,113,0.18)'}`,
+          borderRadius: 'var(--radius-sm)',
+        }}>
           <span className={`status-dot ${serverOnline ? 'online' : ''}`} />
-          API Server {serverOnline ? 'Online' : 'Offline'}
+          <span style={{ flex: 1, fontSize: '0.72rem', color: serverOnline ? 'var(--accent-green)' : 'var(--accent-red)' }}>
+            API {serverOnline ? 'Online' : 'Offline'}
+          </span>
+          <Activity size={9} style={{ opacity: 0.4 }} />
         </div>
-        <div className="status-row" style={{ marginTop: '3px' }}>
-          <Activity size={9} style={{ marginRight: '5px', opacity: 0.45 }} />
-          Web: {buildsCount} · WP: {wpBuildsCount}
+        <div className="sidebar-builds-row">
+          <div className="sidebar-build-stat" style={{ background: 'rgba(45,212,191,0.05)', borderColor: 'rgba(45,212,191,0.18)' }}>
+            <span className="build-count" style={{ color: 'var(--accent-teal)' }}>{buildsCount}</span>
+            <span className="build-label">Web</span>
+          </div>
+          <div className="sidebar-build-stat" style={{ background: 'rgba(167,139,250,0.05)', borderColor: 'rgba(167,139,250,0.18)' }}>
+            <span className="build-count" style={{ color: 'var(--accent-purple)' }}>{wpBuildsCount}</span>
+            <span className="build-label">WP</span>
+          </div>
         </div>
       </div>
     </aside>

@@ -239,16 +239,6 @@ export default function ChatPage({ builds, pipelineType = 'web' }: Props) {
     if (activeSession) saveMessages(activeSession.id, messages);
   }, [messages, activeSession]);
 
-  // Process a response that arrived while ChatPage was unmounted (user navigated away)
-  useEffect(() => {
-    if (pendingResponse === null) return;
-    setLoading(false);
-    setChatStarted(true);
-    processN8nOutput(pendingResponse);
-    setPendingResponse(null);
-    setTimeout(() => inputRef.current?.focus(), 100);
-  }, [pendingResponse, processN8nOutput]);
-
   useEffect(() => {
     buildingRef.current = building;
     if (activeSession) {
@@ -382,6 +372,16 @@ export default function ChatPage({ builds, pipelineType = 'web' }: Props) {
       addMessage('assistant', reply);
     }
   }, [addMessage, resetCompletionTimer]);
+
+  // Process a response that arrived while ChatPage was unmounted (user navigated away)
+  useEffect(() => {
+    if (pendingResponse === null) return;
+    setLoading(false);
+    setChatStarted(true);
+    processN8nOutput(pendingResponse);
+    setPendingResponse(null);
+    setTimeout(() => inputRef.current?.focus(), 100);
+  }, [pendingResponse, processN8nOutput]);
 
   useEffect(() => {
     const handler = (e: Event) => {

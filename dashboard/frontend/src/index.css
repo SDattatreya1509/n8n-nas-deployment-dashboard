@@ -375,6 +375,7 @@ input::placeholder, textarea::placeholder { color: var(--text-muted); }
   overflow: hidden;
   transition: border-color var(--transition), box-shadow var(--transition), transform var(--transition);
   cursor: default;
+  box-shadow: 0 1px 5px rgba(0,0,0,.32);
 }
 .stat-card:hover { transform: translateY(-2px); border-color: var(--border-bright); box-shadow: 0 6px 22px rgba(0,0,0,.42); }
 [data-theme="light"] .stat-card { box-shadow: var(--shadow-sm); }
@@ -391,7 +392,7 @@ input::placeholder, textarea::placeholder { color: var(--text-muted); }
 .stat-card.purple::after { content:''; position:absolute; right:0; top:0; bottom:0; width:60%; background: linear-gradient(to left, rgba(167,139,250,0.08), transparent); pointer-events:none; }
 .stat-card.orange::after { content:''; position:absolute; right:0; top:0; bottom:0; width:60%; background: linear-gradient(to left, rgba(251,146,60,0.08), transparent); pointer-events:none; }
 
-.stat-label { font-size: 0.72rem; color: var(--text-muted); font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; }
+.stat-label { font-size: 0.71rem; color: var(--text-secondary); font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; }
 .stat-value { font-size: 1.875rem; font-weight: 700; color: var(--text-primary); line-height: 1.15; margin: 0.3rem 0 0.2rem; letter-spacing: -0.03em; }
 .stat-sub   { font-size: 0.71rem; color: var(--text-secondary); }
 .stat-icon  { position: absolute; right: 1.125rem; top: 50%; transform: translateY(-50%); opacity: 0.07; }
@@ -459,6 +460,7 @@ input::placeholder, textarea::placeholder { color: var(--text-muted); }
 .btn-primary {
   background: var(--accent-teal); color: #fff; border-color: var(--accent-teal);
   box-shadow: 0 1px 4px rgba(45,212,191,0.2);
+  text-shadow: 0 1px 2px rgba(0,0,0,0.15);
 }
 .btn-primary:hover:not(:disabled) {
   filter: brightness(1.08);
@@ -634,10 +636,13 @@ input::placeholder, textarea::placeholder { color: var(--text-muted); }
 .activity-list { list-style: none; }
 .activity-item {
   display: flex; align-items: flex-start; gap: 0.75rem;
-  padding: 0.5625rem 0; border-bottom: 1px solid var(--border);
+  padding: 0.5rem 0.5rem; border-bottom: 1px solid var(--border);
+  border-radius: var(--radius-sm);
   transition: background var(--transition);
+  margin: 0 -0.5rem;
 }
 .activity-item:last-child { border-bottom: none; }
+.activity-item:hover { background: rgba(255,255,255,0.03); }
 .activity-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent-teal); margin-top: 7px; flex-shrink: 0; }
 .activity-time { font-size: 0.67rem; color: var(--text-muted); font-family: var(--font-mono); }
 
@@ -645,9 +650,13 @@ input::placeholder, textarea::placeholder { color: var(--text-muted); }
 .commit-list { list-style: none; }
 .commit-item {
   display: flex; align-items: center; gap: 0.75rem;
-  padding: 0.5625rem 0; border-bottom: 1px solid var(--border);
+  padding: 0.5rem 0.5rem; border-bottom: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  transition: background var(--transition);
+  margin: 0 -0.5rem;
 }
 .commit-item:last-child { border-bottom: none; }
+.commit-item:hover { background: rgba(255,255,255,0.03); }
 .commit-sha {
   font-family: var(--font-mono); font-size: 0.67rem;
   color: var(--accent-blue); background: rgba(96,165,250,0.09);

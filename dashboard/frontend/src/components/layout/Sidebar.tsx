@@ -17,9 +17,11 @@ export default function Sidebar({ serverOnline, buildsCount, wpBuildsCount }: Pr
   return (
     <aside className="sidebar">
       {/* Logo */}
-      <div className="sidebar-logo">
+      <div className="sidebar-logo" style={{
+        background: 'linear-gradient(135deg, rgba(45,212,191,0.05) 0%, rgba(96,165,250,0.03) 100%)',
+      }}>
         <div className="sidebar-logo-icon">
-          <Zap size={17} color="#fff" strokeWidth={2.5} />
+          <Zap size={18} color="#fff" strokeWidth={2.5} />
         </div>
         <div className="sidebar-logo-text">
           n8n Pipeline

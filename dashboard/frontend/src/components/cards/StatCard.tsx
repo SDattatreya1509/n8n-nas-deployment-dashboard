@@ -26,12 +26,14 @@ export default function StatCard({ label, value, sub, accent, Icon }: Props) {
           {sub && <div className="stat-sub">{sub}</div>}
         </div>
         <div style={{
-          width: 40, height: 40, borderRadius: '10px',
+          width: 42, height: 42, borderRadius: '11px',
           background: colors.bg,
+          border: `1px solid ${colors.icon}28`,
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           flexShrink: 0, marginLeft: '0.75rem', marginTop: '0.125rem',
+          boxShadow: `0 2px 8px ${colors.bg}`,
         }}>
-          <Icon size={20} style={{ color: colors.icon, opacity: 0.9 }} />
+          <Icon size={20} style={{ color: colors.icon }} />
         </div>
       </div>
     </div>

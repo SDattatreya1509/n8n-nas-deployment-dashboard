@@ -182,20 +182,25 @@ export default function RegisterPage() {
           {steps.map((s, i) => (
             <div key={s.id} style={{ display: 'flex', alignItems: 'center' }}>
               <div style={{
-                width: 28, height: 28, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontSize: '0.7rem', fontWeight: 700,
+                width: 30, height: 30, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: '0.72rem', fontWeight: 700, flexShrink: 0,
                 background: i < stepIdx ? 'var(--accent-teal)' : i === stepIdx ? 'var(--accent-blue)' : 'var(--bg-card)',
                 color:      i <= stepIdx ? '#fff' : 'var(--text-muted)',
-                border:     i === stepIdx ? '2px solid var(--accent-blue)' : '2px solid var(--border)',
-                transition: 'all 0.2s',
+                border:     i === stepIdx ? '2px solid var(--accent-blue)'
+                          : i < stepIdx  ? '2px solid var(--accent-teal)'
+                          :                '2px solid var(--border)',
+                boxShadow:  i === stepIdx ? '0 0 0 4px rgba(96,165,250,0.15)'
+                          : i < stepIdx  ? '0 0 0 3px rgba(45,212,191,0.12)'
+                          :                'none',
+                transition: 'all 0.25s',
               }}>
                 {i < stepIdx ? <CheckCircle2 size={13} /> : i + 1}
               </div>
-              <span style={{ fontSize: '0.7rem', color: i === stepIdx ? 'var(--text-primary)' : 'var(--text-muted)', marginLeft: '0.35rem', fontWeight: i === stepIdx ? 600 : 400 }}>
+              <span style={{ fontSize: '0.68rem', color: i === stepIdx ? 'var(--text-primary)' : 'var(--text-muted)', marginLeft: '0.3rem', fontWeight: i === stepIdx ? 600 : 400, whiteSpace: 'nowrap' }}>
                 {s.label}
               </span>
               {i < steps.length - 1 && (
-                <div style={{ width: 28, height: 1, background: i < stepIdx ? 'var(--accent-teal)' : 'var(--border)', margin: '0 0.5rem' }} />
+                <div style={{ width: 22, height: 2, background: i < stepIdx ? 'var(--accent-teal)' : 'var(--border)', margin: '0 0.4rem', borderRadius: '1px', flexShrink: 0 }} />
               )}
             </div>
           ))}

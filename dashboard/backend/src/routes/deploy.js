@@ -16,8 +16,16 @@ router.post('/ftp', requireAuth, async (req, res) => {
     return res.status(400).json({ error: 'zipBase64 and themeName are required' });
   }
 
-  if (!process.env.FTP_HOST || !process.env.FTP_USER || !process.env.FTP_PASS) {
-    return res.status(503).json({ error: 'FTP credentials not configured. Set FTP_HOST, FTP_USER, FTP_PASS in environment.' });
+  // Per-user FTP credentials take priority; fall back to server-wide .env values
+  const ftpHost = req.user.ftp?.host || process.env.FTP_HOST;
+  const ftpUser = req.user.ftp?.user || process.env.FTP_USER;
+  const ftpPass = req.user.ftp?.pass || process.env.FTP_PASS;
+  const ftpBase = req.user.ftp?.remotePath || process.env.FTP_REMOTE_PATH || '/wp-content/themes';
+
+  if (!ftpHost || !ftpUser || !ftpPass) {
+    return res.status(503).json({
+      error: 'FTP credentials not configured. Go to My Profile → WordPress FTP to connect your hosting.',
+    });
   }
 
   const client = new ftp.Client();
@@ -35,16 +43,11 @@ router.post('/ftp', requireAuth, async (req, res) => {
     fs.writeFileSync(tmpPath, Buffer.from(zipBase64, 'base64'));
     emit(`Theme ZIP prepared (${Math.round(fs.statSync(tmpPath).size / 1024)} KB)`);
 
-    emit('Connecting to FTP...');
-    await client.access({
-      host:     process.env.FTP_HOST,
-      user:     process.env.FTP_USER,
-      password: process.env.FTP_PASS,
-      secure:   false,
-    });
+    emit(`Connecting to FTP (${ftpHost})...`);
+    await client.access({ host: ftpHost, user: ftpUser, password: ftpPass, secure: false });
     emit('Connected to FTP');
 
-    const remotePath = (process.env.FTP_REMOTE_PATH || '/wp-content/themes') + `/${safeName}`;
+    const remotePath = `${ftpBase}/${safeName}`;
     emit(`Ensuring remote path: ${remotePath}`);
     await client.ensureDir(remotePath);
 

@@ -102,7 +102,7 @@ async function verifyPassword(email, password) {
 
 const ALLOWED_USER_UPDATE_FIELDS = new Set([
   'name', 'email', 'passwordHash', 'role', 'emailVerified',
-  'verificationToken', 'verificationExpiry', 'webhookToken', 'github',
+  'verificationToken', 'verificationExpiry', 'webhookToken', 'github', 'ftp',
 ]);
 
 function updateUser(id, updates) {
@@ -121,8 +121,12 @@ function updateUser(id, updates) {
 function safeUser(user) {
   // eslint-disable-next-line no-unused-vars
   const { passwordHash, verificationToken, verificationExpiry, webhookToken, ...safe } = user;
-  // Accounts created before email verification was added default to verified
   if (safe.emailVerified === undefined) safe.emailVerified = true;
+  // Strip FTP password — only host/user/remotePath returned so UI can show connected status
+  if (safe.ftp) {
+    const { pass: _ftpPass, ...ftpSafe } = safe.ftp;
+    safe.ftp = ftpSafe;
+  }
   return safe;
 }
 

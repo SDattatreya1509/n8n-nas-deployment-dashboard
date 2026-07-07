@@ -2,6 +2,7 @@ const express = require('express');
 const router  = express.Router();
 const bcrypt  = require('bcryptjs');
 const crypto  = require('crypto');
+const ftp     = require('basic-ftp');
 const {
   createUser, verifyPassword, updateUser, findByEmail, findById,
   findByVerificationToken, refreshVerificationToken, deleteUser,
@@ -194,6 +195,62 @@ router.get('/bootstrap-verify', async (req, res) => {
   const updated = updateUser(user.id, { emailVerified: true, role: 'admin' });
   console.warn(`[bootstrap-verify] Account promoted to admin: ${updated.email} — remove BOOTSTRAP_TOKEN from .env now`);
   res.json({ ok: true, message: 'Account verified and promoted to admin. Remove BOOTSTRAP_TOKEN from your .env file now.' });
+});
+
+// ── POST /api/auth/ftp — save user's FTP credentials ─────────────────────────
+router.post('/ftp', requireAuth, async (req, res) => {
+  const { host, user, pass, remotePath } = req.body ?? {};
+  if (!host?.trim() || !user?.trim() || !pass)
+    return res.status(400).json({ error: 'host, user and pass are required' });
+
+  try {
+    const updated = updateUser(req.user.id, {
+      ftp: {
+        host:       host.trim(),
+        user:       user.trim(),
+        pass,
+        remotePath: remotePath?.trim() || '/wp-content/themes',
+      },
+    });
+    res.json({ user: safeUser(updated) });
+  } catch (err) {
+    console.error('[ftp] save failed:', err);
+    res.status(500).json({ error: 'Failed to save FTP credentials.' });
+  }
+});
+
+// ── POST /api/auth/ftp/test — verify FTP connection works ─────────────────────
+router.post('/ftp/test', requireAuth, async (req, res) => {
+  // Use freshly-submitted credentials if provided, else use stored ones
+  const { host, user, pass, remotePath } = req.body ?? {};
+  const ftpHost = host?.trim() || req.user.ftp?.host;
+  const ftpUser = user?.trim() || req.user.ftp?.user;
+  const ftpPass = pass         || req.user.ftp?.pass;
+
+  if (!ftpHost || !ftpUser || !ftpPass)
+    return res.status(400).json({ ok: false, error: 'FTP credentials not configured' });
+
+  const client = new ftp.Client();
+  client.ftp.verbose = false;
+  try {
+    await client.access({ host: ftpHost, user: ftpUser, password: ftpPass, secure: false });
+    res.json({ ok: true, message: `Connected to ${ftpHost} as ${ftpUser}` });
+  } catch (err) {
+    res.status(400).json({ ok: false, error: err.message });
+  } finally {
+    client.close();
+  }
+});
+
+// ── DELETE /api/auth/ftp — remove user's FTP credentials ─────────────────────
+router.delete('/ftp', requireAuth, (req, res) => {
+  try {
+    const updated = updateUser(req.user.id, { ftp: null });
+    res.json({ user: safeUser(updated) });
+  } catch (err) {
+    console.error('[ftp] delete failed:', err);
+    res.status(500).json({ error: 'Failed to remove FTP credentials.' });
+  }
 });
 
 // ── GET /api/auth/test-smtp — admin only, verifies SMTP credentials ───────────

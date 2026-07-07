@@ -4,7 +4,7 @@ import {
   User, Mail, Lock, Github, Copy, Check, Eye, EyeOff,
   ShieldCheck, ExternalLink, AlertTriangle, CheckCircle2, Crown,
   Trash2, RefreshCw, Send, UserCheck, Users, Webhook,
-  KeyRound, Pencil, X, ChevronRight,
+  KeyRound, Pencil, X, ChevronRight, Globe, Server,
 } from 'lucide-react';
 import { useAuth } from '../store/useAuth';
 import { useToast } from '../components/cards/ToastProvider';
@@ -176,6 +176,7 @@ export default function ProfilePage() {
                 )}
                 <StatusPill ok={user.emailVerified} label={user.emailVerified ? 'Verified' : 'Unverified'} />
                 {user.github && <StatusPill ok label="GitHub" />}
+              {user.ftp    && <StatusPill ok label="FTP" />}
               </div>
               <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: '0.35rem 0 0' }}>
                 {user.email}
@@ -205,6 +206,7 @@ export default function ProfilePage() {
               { label: 'Joined',       value: timeAgo(user.createdAt) },
               { label: 'Email',        value: user.emailVerified ? 'Verified' : 'Pending verification' },
               { label: 'GitHub',       value: user.github ? `@${user.github.username}` : 'Not connected' },
+              { label: 'WordPress FTP', value: user.ftp ? user.ftp.host : 'Not connected' },
             ].map(({ label, value }) => (
               <div key={label}>
                 <div style={{ fontSize: '0.65rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>
@@ -239,6 +241,14 @@ export default function ProfilePage() {
         user={user}
         headers={headers()}
         getToken={getToken}
+        onSuccess={async (msg: string) => { await refreshUser(); toast(msg, 'success'); }}
+        onError={(msg: string) => toast(msg, 'error')}
+      />
+
+      {/* ── WordPress FTP Integration ── */}
+      <FtpSection
+        user={user}
+        headers={headers()}
         onSuccess={async (msg: string) => { await refreshUser(); toast(msg, 'success'); }}
         onError={(msg: string) => toast(msg, 'error')}
       />
@@ -674,6 +684,191 @@ function GitHubSection({ user, headers, getToken, onSuccess, onError }: any) {
             )}
           </div>
         </div>
+      )}
+    </Section>
+  );
+}
+
+/* ── WordPress FTP Integration ─────────────────────────────────── */
+function FtpSection({ user, headers, onSuccess, onError }: any) {
+  const ftp = user.ftp;
+  const [showForm,   setShowForm]   = useState(false);
+  const [host,       setHost]       = useState(ftp?.host       ?? '');
+  const [ftpUser,    setFtpUser]    = useState(ftp?.user       ?? '');
+  const [pass,       setPass]       = useState('');
+  const [remotePath, setRemotePath] = useState(ftp?.remotePath ?? '/wp-content/themes');
+  const [showPass,   setShowPass]   = useState(false);
+  const [saving,     setSaving]     = useState(false);
+  const [testing,    setTesting]    = useState(false);
+  const [testResult, setTestResult] = useState<{ ok: boolean; msg: string } | null>(null);
+
+  const openForm = (edit = false) => {
+    if (edit && ftp) {
+      setHost(ftp.host); setFtpUser(ftp.user);
+      setRemotePath(ftp.remotePath ?? '/wp-content/themes');
+    }
+    setPass(''); setTestResult(null); setShowForm(true);
+  };
+
+  const handleTest = async () => {
+    if (!host.trim() || !ftpUser.trim() || !pass) { onError('Fill in host, username and password first'); return; }
+    setTesting(true); setTestResult(null);
+    try {
+      const res  = await fetch(`${API}/auth/ftp/test`, {
+        method: 'POST', headers,
+        body: JSON.stringify({ host: host.trim(), user: ftpUser.trim(), pass, remotePath }),
+      });
+      const data = await res.json();
+      setTestResult({ ok: data.ok, msg: data.ok ? data.message : (data.error ?? 'Connection failed') });
+    } catch { setTestResult({ ok: false, msg: 'Network error' }); }
+    finally { setTesting(false); }
+  };
+
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!host.trim() || !ftpUser.trim() || !pass) { onError('Host, username and password are all required'); return; }
+    setSaving(true);
+    try {
+      const res  = await fetch(`${API}/auth/ftp`, {
+        method: 'POST', headers,
+        body: JSON.stringify({ host: host.trim(), user: ftpUser.trim(), pass, remotePath: remotePath.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      setShowForm(false); setPass('');
+      onSuccess('WordPress FTP connected');
+    } catch (e: any) { onError(e.message); }
+    finally { setSaving(false); }
+  };
+
+  const handleDisconnect = async () => {
+    if (!confirm('Remove your FTP credentials? Deploy will stop working until you reconnect.')) return;
+    const res = await fetch(`${API}/auth/ftp`, { method: 'DELETE', headers });
+    if (res.ok) onSuccess('FTP disconnected');
+    else onError('Failed to disconnect');
+  };
+
+  return (
+    <Section
+      title="WordPress FTP"
+      desc="Connect your WordPress hosting via FTP so generated themes deploy automatically to your site."
+      icon={<Globe size={15} />}
+      accent="var(--accent-blue)"
+    >
+      {!ftp && !showForm ? (
+        /* ── Not connected ── */
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          flexWrap: 'wrap', gap: '0.875rem', padding: '1rem',
+          background: 'var(--bg-base)', border: '1px solid var(--border)',
+          borderRadius: 'var(--radius-md)',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.875rem' }}>
+            <div style={{
+              width: 40, height: 40, borderRadius: '50%',
+              background: 'var(--bg-surface)', border: '1px solid var(--border)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}>
+              <Server size={18} style={{ color: 'var(--text-muted)' }} />
+            </div>
+            <div>
+              <div style={{ fontSize: '0.8375rem', fontWeight: 600, color: 'var(--text-secondary)' }}>FTP not connected</div>
+              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.15rem' }}>Connect to auto-deploy WordPress themes after each build</div>
+            </div>
+          </div>
+          <button className="btn btn-primary btn-sm" onClick={() => openForm()} style={{ gap: '0.4rem' }}>
+            <Server size={13} /> Connect FTP
+          </button>
+        </div>
+      ) : ftp && !showForm ? (
+        /* ── Connected state ── */
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
+          <div style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            flexWrap: 'wrap', gap: '0.625rem', padding: '0.875rem 1rem',
+            background: 'rgba(96,165,250,0.04)', border: '1px solid rgba(96,165,250,0.2)',
+            borderRadius: 'var(--radius-md)',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.875rem' }}>
+              <div style={{
+                width: 40, height: 40, borderRadius: '50%',
+                background: 'rgba(96,165,250,0.1)', border: '1px solid rgba(96,165,250,0.3)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}>
+                <Server size={18} style={{ color: 'var(--accent-blue)' }} />
+              </div>
+              <div>
+                <div style={{ fontSize: '0.8375rem', fontWeight: 700, color: 'var(--text-primary)' }}>{ftp.host}</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.15rem', flexWrap: 'wrap' }}>
+                  <CheckCircle2 size={11} style={{ color: 'var(--accent-blue)' }} />
+                  <span style={{ fontSize: '0.72rem', color: 'var(--accent-blue)', fontWeight: 600 }}>Connected</span>
+                  <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>· user: {ftp.user}</span>
+                  <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>· path: {ftp.remotePath}</span>
+                </div>
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: '0.375rem', flexShrink: 0 }}>
+              <button className="btn btn-ghost btn-sm" onClick={() => openForm(true)} style={{ gap: '0.35rem' }}>
+                <Pencil size={12} /> Edit
+              </button>
+              <button className="btn btn-ghost btn-sm" onClick={handleDisconnect} style={{ color: 'var(--accent-red)', gap: '0.35rem' }}>
+                <X size={12} /> Disconnect
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : (
+        /* ── Connect / Edit form ── */
+        <form onSubmit={handleSave} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+            <InputField label="FTP Host" icon={<Server size={13} />}>
+              <input value={host} onChange={e => setHost(e.target.value)} required placeholder="ftp.your-domain.com" />
+            </InputField>
+            <InputField label="FTP Username" icon={<User size={13} />}>
+              <input value={ftpUser} onChange={e => setFtpUser(e.target.value)} required placeholder="your-ftp-username" />
+            </InputField>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+            <InputField label="FTP Password" icon={<Lock size={13} />}
+              extra={<ToggleVisBtn show={showPass} toggle={() => setShowPass(p => !p)} />}>
+              <input type={showPass ? 'text' : 'password'} value={pass}
+                onChange={e => setPass(e.target.value)} required placeholder="Your FTP password"
+                style={{ paddingRight: '2.5rem' }} />
+            </InputField>
+            <InputField label="Remote Path" icon={<Globe size={13} />}>
+              <input value={remotePath} onChange={e => setRemotePath(e.target.value)} placeholder="/wp-content/themes" />
+            </InputField>
+          </div>
+
+          {/* Test result banner */}
+          {testResult && (
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: '0.5rem',
+              padding: '0.625rem 0.875rem', borderRadius: 'var(--radius-sm)',
+              background: testResult.ok ? 'rgba(45,212,191,0.07)' : 'rgba(248,113,113,0.07)',
+              border: `1px solid ${testResult.ok ? 'rgba(45,212,191,0.25)' : 'rgba(248,113,113,0.25)'}`,
+              fontSize: '0.78rem', fontWeight: 600,
+              color: testResult.ok ? 'var(--accent-teal)' : 'var(--accent-red)',
+            }}>
+              {testResult.ok ? <CheckCircle2 size={13} /> : <AlertTriangle size={13} />}
+              {testResult.msg}
+            </div>
+          )}
+
+          <div style={{ display: 'flex', gap: '0.625rem', flexWrap: 'wrap' }}>
+            <button type="button" className="btn btn-ghost btn-sm" onClick={handleTest}
+              disabled={testing} style={{ gap: '0.375rem' }}>
+              {testing ? <span className="spinner" style={{ width: 12, height: 12, borderWidth: 2 }} /> : <Server size={12} />}
+              {testing ? 'Testing…' : 'Test Connection'}
+            </button>
+            <button type="submit" className="btn btn-primary btn-sm" disabled={saving} style={{ gap: '0.375rem' }}>
+              {saving ? <><span className="spinner" style={{ width: 12, height: 12, borderWidth: 2 }} /> Saving…</> : <><Check size={13} /> Save FTP</>}
+            </button>
+            <button type="button" className="btn btn-ghost btn-sm" onClick={() => { setShowForm(false); setTestResult(null); }}>
+              <X size={13} /> Cancel
+            </button>
+          </div>
+        </form>
       )}
     </Section>
   );
